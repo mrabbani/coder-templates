@@ -30,7 +30,8 @@ RUN npm install -g \
     @wordpress/env \
     postcss-cli
 
-# Claude Code is installed by the official Coder module (not in Dockerfile)
+# ── Claude Code CLI ──────────────────────────────────────────────────────────
+RUN npm install -g @anthropic-ai/claude-code
 
 # ── code-server (VS Code in browser) ─────────────────────────────────────────
 RUN curl -fsSL https://code-server.dev/install.sh | sh
