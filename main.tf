@@ -242,6 +242,7 @@ resource "docker_container" "dev" {
     "CODER_AGENT_URL=${data.coder_parameter.coder_access_url.value}",
     "PLUGINS_JSON_B64=${base64encode(data.coder_parameter.plugins.value)}",
     "WP_HOST=wp-${data.coder_workspace.me.id}",
+    "MYSQL_HOST=mysql-${data.coder_workspace.me.id}",
     "ANTHROPIC_TOKEN=${var.anthropic_token}",
     "GIT_TOKEN=${var.git_token}",
     "BLOWFISH_SECRET=${random_string.blowfish_secret.result}",
@@ -291,7 +292,7 @@ if [ "$WP_CONTAINER" != "localhost" ]; then
     WP_IPV4=$(getent ahostsv4 "$WP_CONTAINER" 2>/dev/null | awk 'NR==1{print $1}')
     if [ -n "$WP_IPV4" ]; then
       echo "Resolved $WP_CONTAINER -> $WP_IPV4"
-      socat TCP-LISTEN:8080,bind=127.0.0.1,fork,reuseaddr TCP4:$${WP_IPV4}:80 &
+      socat TCP-LISTEN:8080,bind=127.0.0.1,fork,reuseaddr TCP4:$${WP_IPV4}:80 >/dev/null 2>&1 &
       echo "WordPress proxy: 127.0.0.1:8080 -> $${WP_IPV4}:80"
       break
     fi
@@ -369,9 +370,9 @@ fi
 
 # Step 5: Wait for MySQL
 echo ""
-echo "Waiting for MySQL ($${WP_HOST:-localhost})..."
+echo "Waiting for MySQL ($${MYSQL_HOST:-localhost})..."
 T=0
-until mysqladmin ping -h"$${WP_HOST:-localhost}" -u wordpress -pwordpress --silent 2>/dev/null; do
+until mysqladmin ping -h"$${MYSQL_HOST:-localhost}" -u wordpress -pwordpress --silent 2>/dev/null; do
   T=$((T+1)); [ $T -ge 30 ] && echo "MySQL timeout" && break; sleep 3
 done
 echo "MySQL ready"
@@ -383,6 +384,9 @@ until curl -sf "http://$${WP_HOST:-localhost}:80/" -o /dev/null 2>/dev/null; do
   T=$((T+1)); [ $T -ge 20 ] && echo "WordPress timeout" && break; sleep 3
 done
 echo "WordPress responding"
+
+# Step 6b: Fix permissions on workspace volume (mounted as root)
+sudo chown -R coder:coder "$WORKSPACE" 2>/dev/null || true
 
 # Step 7: WP-CLI config — run commands inside the WordPress container via Docker
 # Requires Docker socket mounted into the dev container
@@ -472,7 +476,7 @@ code-server \
 
 # Step 13: Start phpMyAdmin — bind to 127.0.0.1
 echo "Starting phpMyAdmin..."
-cat > /opt/phpmyadmin/config.inc.php <<PMAEOF
+sudo tee /opt/phpmyadmin/config.inc.php >/dev/null <<PMAEOF
 <?php
 \$cfg['Servers'][1]['host']      = getenv('WP_HOST') ?: 'localhost';
 \$cfg['Servers'][1]['user']      = 'wordpress';
