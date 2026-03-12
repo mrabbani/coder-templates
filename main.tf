@@ -336,26 +336,38 @@ if [ -n "$${GIT_TOKEN:-}" ]; then
   echo "Git credentials configured"
 fi
 
-# Step 4: Process each plugin
+# Step 4: Process each plugin — clone if missing, then install deps
 SLUGS=()
 if [ "$PLUGIN_COUNT" -gt 0 ]; then
   for i in $(seq 0 $((PLUGIN_COUNT - 1))); do
     SLUG=$(echo "$PLUGINS_JSON" | jq -r ".[$i].slug // empty")
     [ -z "$SLUG" ] && continue
+    URL=$(echo "$PLUGINS_JSON" | jq -r ".[$i].url // empty")
+    BRANCH=$(echo "$PLUGINS_JSON" | jq -r ".[$i].branch // \"main\"")
     DIR="$WORKSPACE/$SLUG"
     SLUGS+=("$SLUG")
     echo ""
     echo "── $SLUG ──────────────────────────────────────────"
-    if [ ! -d "$DIR" ]; then
-      echo "  WARNING: $DIR not found on host"
-      echo "  Run: cd $(dirname $DIR) && git clone <url> $SLUG"
-      continue
-    fi
-    if [ -d "$DIR/.git" ]; then
-      BRANCH=$(git -C "$DIR" branch --show-current 2>/dev/null || echo "detached")
+
+    # Clone the repo if directory doesn't exist or is empty
+    if [ ! -d "$DIR/.git" ]; then
+      if [ -n "$URL" ]; then
+        echo "  Cloning $URL (branch: $BRANCH)..."
+        git clone --branch "$BRANCH" --single-branch "$URL" "$DIR" 2>&1 | tail -3 || {
+          echo "  FAILED to clone $URL"
+          continue
+        }
+        echo "  Cloned successfully"
+      else
+        echo "  WARNING: No URL provided for $SLUG, skipping"
+        continue
+      fi
+    else
+      CUR_BRANCH=$(git -C "$DIR" branch --show-current 2>/dev/null || echo "detached")
       COMMIT=$(git -C "$DIR" log --oneline -1 2>/dev/null || echo "unknown")
-      echo "  Branch: $BRANCH | $COMMIT"
+      echo "  Branch: $CUR_BRANCH | $COMMIT"
     fi
+
     if [ -f "$DIR/composer.json" ]; then
       echo "  composer install..."
       (cd "$DIR" && composer install --no-interaction --prefer-dist -q 2>&1 | tail -3) || true
