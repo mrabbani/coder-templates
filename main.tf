@@ -14,13 +14,19 @@ terraform {
 provider "coder" {}
 provider "docker" {}
 
-# ── Variables (secrets) ──────────────────────────────────────────────────────
+# ── Variables (secrets — set at template level) ──────────────────────────────
 
-variable "anthropic_token" {
+variable "claude_code_oauth_token" {
+  type        = string
+  default     = ""
+  description = "System-level Claude Code OAuth token. User token takes priority if provided."
+}
+
+variable "anthropic_auth_token" {
   type        = string
   default     = ""
   sensitive   = true
-  description = "Anthropic API token for Claude Code"
+  description = "Anthropic API key (sk-ant-...). Optional — OAuth token is preferred for Pro/Max subscriptions."
 }
 
 variable "git_token" {
@@ -56,7 +62,7 @@ data "coder_parameter" "coder_access_url" {
   name         = "coder_access_url"
   display_name = "Coder Access URL"
   description  = "URL containers use to reach Coder — use your Hetzner public IP, not localhost"
-  default      = "http://172.17.0.1:3000"
+  default      = "http://178.104.53.153:3000"
   mutable      = true
 }
 
@@ -116,10 +122,49 @@ data "coder_parameter" "claude_code" {
   }
 }
 
+data "coder_parameter" "user_claude_code_oauth_token" {
+  name         = "user_claude_code_oauth_token"
+  display_name = "Claude Code OAuth Token (User)"
+  description  = "Your personal Claude Code OAuth token. Generate one using 'claude setup-token' command. If provided, this takes priority over system token. Enter '0' to disable Claude Code authentication."
+  type         = "string"
+  default      = ""
+  mutable      = true
+}
+
 # ── Workspace ────────────────────────────────────────────────────────────────
 
 data "coder_workspace"       "me" {}
 data "coder_workspace_owner" "me" {}
+
+# ── Claude Code (official Coder module) ──────────────────────────────────────
+
+module "claude_code" {
+  count               = data.coder_parameter.claude_code.value == "true" ? data.coder_workspace.me.start_count : 0
+  source              = "registry.coder.com/coder/claude-code/coder"
+  version             = "~> 4.7"
+  agent_id            = coder_agent.main.id
+  workdir             = "/home/coder/workspace"
+  install_claude_code = true
+  claude_code_version = "latest"
+  order               = 999
+  subdomain           = true
+
+  claude_code_oauth_token = (
+    data.coder_parameter.user_claude_code_oauth_token.value == "0" ?
+    "" :
+    (data.coder_parameter.user_claude_code_oauth_token.value != "" ? data.coder_parameter.user_claude_code_oauth_token.value : var.claude_code_oauth_token)
+  )
+  claude_api_key = var.anthropic_auth_token
+}
+
+# ── Auth token via coder_env (if API key provided) ──────────────────────────
+
+resource "coder_env" "anthropic_auth_token" {
+  count    = var.anthropic_auth_token != "" ? 1 : 0
+  agent_id = coder_agent.main.id
+  name     = "ANTHROPIC_AUTH_TOKEN"
+  value    = var.anthropic_auth_token
+}
 
 # ── Random secret for phpMyAdmin ─────────────────────────────────────────────
 
@@ -199,9 +244,6 @@ resource "docker_container" "wordpress" {
       container_path = "/var/www/html/wp-content/plugins/${volumes.value.slug}"
     }
   }
-
-  # No host port mapping needed — dev container reaches WordPress
-  # via Docker network hostname (wp-{id}:80) directly.
 }
 
 # ── Dev container ─────────────────────────────────────────────────────────────
@@ -213,13 +255,11 @@ resource "docker_image" "dev" {
     dockerfile = "Dockerfile.dev"
     build_args = {
       PHP_VERSION = data.coder_parameter.php_version.value
-      CLAUDE_CODE = data.coder_parameter.claude_code.value
     }
   }
   triggers = {
     dockerfile  = filemd5("${path.module}/Dockerfile.dev")
     php_version = data.coder_parameter.php_version.value
-    claude_code = data.coder_parameter.claude_code.value
   }
 }
 
@@ -233,17 +273,12 @@ resource "docker_container" "dev" {
     name = docker_network.wp_network.name
   }
 
-  # Force WordPress and MySQL hostnames to resolve via IPv4 inside this container.
-  # Docker embedded DNS returns AAAA (IPv6) records even on IPv4-only networks,
-  # which causes "connection refused" 502 errors when the Coder agent proxies requests.
-  # The actual IPv4 is resolved at startup in the init script and written to /etc/hosts.
   env = [
     "CODER_AGENT_TOKEN=${coder_agent.main.token}",
     "CODER_AGENT_URL=${data.coder_parameter.coder_access_url.value}",
     "PLUGINS_JSON_B64=${base64encode(data.coder_parameter.plugins.value)}",
     "WP_HOST=wp-${data.coder_workspace.me.id}",
     "MYSQL_HOST=mysql-${data.coder_workspace.me.id}",
-    "ANTHROPIC_TOKEN=${var.anthropic_token}",
     "GIT_TOKEN=${var.git_token}",
     "BLOWFISH_SECRET=${random_string.blowfish_secret.result}",
   ]
@@ -287,7 +322,6 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 WP_CONTAINER="$${WP_HOST:-localhost}"
 if [ "$WP_CONTAINER" != "localhost" ]; then
   echo "Starting IPv4 proxy for WordPress ($WP_CONTAINER)..."
-  # Wait for the WordPress container to be reachable on IPv4
   for attempt in $(seq 1 30); do
     WP_IPV4=$(getent ahostsv4 "$WP_CONTAINER" 2>/dev/null | awk 'NR==1{print $1}')
     if [ -n "$WP_IPV4" ]; then
@@ -299,6 +333,9 @@ if [ "$WP_CONTAINER" != "localhost" ]; then
     sleep 2
   done
 fi
+
+# Step 0b: Fix permissions on workspace volume (mounted as root)
+sudo chown -R coder:coder "$WORKSPACE" 2>/dev/null || true
 
 # Step 1: Install jq FIRST before any JSON parsing
 if ! command -v jq &>/dev/null; then
@@ -400,9 +437,6 @@ until curl -sf "http://$${WP_HOST:-localhost}:80/" -o /dev/null 2>/dev/null; do
 done
 echo "WordPress responding"
 
-# Step 6b: Fix permissions on workspace volume (mounted as root)
-sudo chown -R coder:coder "$WORKSPACE" 2>/dev/null || true
-
 # Step 7: WP-CLI config — run commands inside the WordPress container via Docker
 # Requires Docker socket mounted into the dev container
 mkdir -p ~/.wp-cli
@@ -438,20 +472,7 @@ if [ "$${#SLUGS[@]}" -gt 0 ]; then
   done
 fi
 
-# Step 10: Anthropic auth — heredoc at column 0, no indent
-if [ -n "$${ANTHROPIC_TOKEN:-}" ]; then
-  mkdir -p ~/.config/anthropic
-cat > ~/.config/anthropic/auth.json <<AUTHEOF
-{
-  "type": "token",
-  "token": "$${ANTHROPIC_TOKEN}"
-}
-AUTHEOF
-  chmod 600 ~/.config/anthropic/auth.json
-  echo "Anthropic token configured"
-fi
-
-# Step 11: CLAUDE.md
+# Step 10: CLAUDE.md
 CLAUDE_MD="$WORKSPACE/CLAUDE.md"
 if [ ! -f "$CLAUDE_MD" ] && [ "$PLUGIN_COUNT" -gt 0 ]; then
   {
@@ -481,7 +502,7 @@ if [ ! -f "$CLAUDE_MD" ] && [ "$PLUGIN_COUNT" -gt 0 ]; then
   echo "CLAUDE.md generated"
 fi
 
-# Step 12: Start VS Code — bind to 127.0.0.1 (agent-local, IPv4 only)
+# Step 11: Start VS Code — bind to 127.0.0.1 (agent-local, IPv4 only)
 echo "Starting VS Code..."
 code-server \
   --bind-addr 127.0.0.1:8081 \
@@ -489,7 +510,7 @@ code-server \
   --disable-telemetry \
   "$WORKSPACE" >/tmp/code-server.log 2>&1 &
 
-# Step 13: Start phpMyAdmin — bind to 127.0.0.1
+# Step 12: Start phpMyAdmin — bind to 127.0.0.1
 echo "Starting phpMyAdmin..."
 sudo tee /opt/phpmyadmin/config.inc.php >/dev/null <<PMAEOF
 <?php

@@ -1,8 +1,6 @@
 ARG PHP_VERSION=8.2
 FROM php:${PHP_VERSION}-cli-bookworm
 
-ARG CLAUDE_CODE=true
-
 # ── System deps ──────────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl wget git unzip zip \
@@ -32,10 +30,7 @@ RUN npm install -g \
     @wordpress/env \
     postcss-cli
 
-# ── Claude Code CLI ──────────────────────────────────────────────────────────
-RUN if [ "$CLAUDE_CODE" = "true" ]; then \
-    npm install -g @anthropic-ai/claude-code; \
-    fi
+# Claude Code is installed by the official Coder module (not in Dockerfile)
 
 # ── code-server (VS Code in browser) ─────────────────────────────────────────
 RUN curl -fsSL https://code-server.dev/install.sh | sh
