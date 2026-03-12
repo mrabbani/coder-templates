@@ -1,0 +1,112 @@
+{
+  "folders": [
+    {
+      "name": "Plugin Source",
+      "path": "."
+    }
+  ],
+  "settings": {
+    // PHP
+    "php.validate.executablePath": "/usr/local/bin/php",
+    "intelephense.environment.phpVersion": "8.2",
+    "intelephense.stubs": [
+      "apache", "bcmath", "bz2", "calendar", "com_dotnet",
+      "Core", "ctype", "curl", "date", "dba", "dom",
+      "enchant", "exif", "fileinfo", "filter", "ftp",
+      "gd", "hash", "iconv", "imap", "intl", "json",
+      "ldap", "libxml", "mbstring", "meta", "mssql",
+      "mysqli", "openssl", "pcre", "PDO", "pdo_mysql",
+      "Phar", "posix", "pspell", "readline", "Reflection",
+      "session", "SimpleXML", "soap", "sodium", "SPL",
+      "sqlite3", "standard", "tidy", "tokenizer",
+      "wordpress", "xml", "xmlreader", "xmlrpc", "xmlwriter",
+      "xsl", "Zend OPcache", "zip", "zlib"
+    ],
+    "intelephense.diagnostics.undefinedFunctions": false,
+    "intelephense.diagnostics.undefinedConstants": false,
+
+    // Editor
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "[php]": {
+      "editor.defaultFormatter": "bmewburn.vscode-intelephense-client"
+    },
+    "editor.tabSize": 4,
+    "editor.insertSpaces": false,
+
+    // Files
+    "files.exclude": {
+      "vendor/": false,
+      "node_modules/": true,
+      ".git": true
+    },
+    "files.watcherExclude": {
+      "**/vendor/**": true,
+      "**/node_modules/**": true
+    },
+
+    // PHP CS Fixer / PHPCS
+    "phpcs.enable": true,
+    "phpcs.standard": "WordPress",
+
+    // Testing
+    "phpunit.phpunit": "./vendor/bin/phpunit",
+    "phpunit.configurationPath": "./phpunit.xml",
+
+    // Terminal
+    "terminal.integrated.defaultProfile.linux": "bash"
+  },
+  "extensions": {
+    "recommendations": [
+      "bmewburn.vscode-intelephense-client",
+      "wordpresstoolbox.wordpress-toolbox",
+      "neilbrayfield.php-docblocker",
+      "MehediDracula.php-namespace-resolver",
+      "esbenp.prettier-vscode",
+      "dbaeumer.vscode-eslint",
+      "eamodio.gitlens",
+      "humao.rest-client",
+      "rifi2k.format-html-in-php"
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Build Assets",
+        "type": "shell",
+        "command": "npm run build",
+        "group": "build",
+        "presentation": { "reveal": "always" }
+      },
+      {
+        "label": "Watch Assets",
+        "type": "shell",
+        "command": "npm run start",
+        "group": "build",
+        "isBackground": true,
+        "presentation": { "reveal": "always" }
+      },
+      {
+        "label": "Run Tests",
+        "type": "shell",
+        "command": "composer test",
+        "group": "test",
+        "presentation": { "reveal": "always" }
+      },
+      {
+        "label": "Lint PHP",
+        "type": "shell",
+        "command": "composer lint",
+        "group": "build",
+        "presentation": { "reveal": "always" }
+      },
+      {
+        "label": "WP-CLI: List Plugins",
+        "type": "shell",
+        "command": "wp plugin list",
+        "presentation": { "reveal": "always" }
+      }
+    ]
+  }
+}

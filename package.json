@@ -1,0 +1,25 @@
+{
+  "name": "{{PLUGIN_SLUG}}",
+  "version": "1.0.0",
+  "description": "{{PLUGIN_NAME}}",
+  "private": true,
+  "scripts": {
+    "start":     "wp-scripts start",
+    "build":     "wp-scripts build",
+    "lint:js":   "wp-scripts lint-js",
+    "lint:css":  "wp-scripts lint-style",
+    "lint:pkg":  "wp-scripts lint-pkg-json",
+    "format":    "wp-scripts format",
+    "packages-update": "wp-scripts packages-update"
+  },
+  "devDependencies": {
+    "@wordpress/scripts": "^30.0.0"
+  },
+  "dependencies": {
+    "@wordpress/api-fetch": "*",
+    "@wordpress/components": "*",
+    "@wordpress/data": "*",
+    "@wordpress/element": "*",
+    "@wordpress/i18n": "*"
+  }
+}
