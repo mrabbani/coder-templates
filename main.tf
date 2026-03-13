@@ -116,6 +116,10 @@ resource "docker_network" "wp_network" {
 
 # ── MySQL ─────────────────────────────────────────────────────────────────────
 
+resource "docker_volume" "claude_config" {
+  name = "claude-config-${data.coder_workspace.me.id}"
+}
+
 resource "docker_volume" "mysql_data" {
   name = "mysql-data-${data.coder_workspace.me.id}"
 }
@@ -219,6 +223,12 @@ resource "docker_container" "dev" {
   volumes {
     host_path      = data.coder_parameter.plugins_base_path.value
     container_path = "/home/coder/workspace"
+  }
+
+  # Claude Code config — persist login across restarts
+  volumes {
+    volume_name    = docker_volume.claude_config.name
+    container_path = "/home/coder/.claude"
   }
 
   # Docker socket — needed for WP-CLI ssh:docker: transport
