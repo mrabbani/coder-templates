@@ -458,7 +458,7 @@ code-server \
 echo "Starting phpMyAdmin..."
 sudo tee /opt/phpmyadmin/config.inc.php >/dev/null <<PMAEOF
 <?php
-\$cfg['Servers'][1]['host']      = getenv('WP_HOST') ?: 'localhost';
+\$cfg['Servers'][1]['host']      = getenv('MYSQL_HOST') ?: 'localhost';
 \$cfg['Servers'][1]['user']      = 'wordpress';
 \$cfg['Servers'][1]['password']  = 'wordpress';
 \$cfg['Servers'][1]['auth_type'] = 'config';
