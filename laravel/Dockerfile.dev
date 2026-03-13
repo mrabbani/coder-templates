@@ -1,0 +1,62 @@
+ARG PHP_VERSION=8.2
+FROM php:${PHP_VERSION}-cli-bookworm
+
+# ── System deps ──────────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl wget git unzip zip \
+    libzip-dev libxml2-dev libonig-dev libpng-dev libjpeg-dev libfreetype6-dev \
+    libcurl4-openssl-dev libssl-dev libicu-dev \
+    default-mysql-client \
+    nodejs npm \
+    sudo less jq socat docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── PHP extensions ───────────────────────────────────────────────────────────
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install \
+    zip xml mbstring pdo pdo_mysql mysqli \
+    gd opcache bcmath intl curl pcntl \
+    && pecl install redis \
+    && docker-php-ext-enable redis
+
+# ── Composer ─────────────────────────────────────────────────────────────────
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# ── Node / npm tools ─────────────────────────────────────────────────────────
+RUN npm install -g \
+    vite \
+    postcss-cli
+
+# ── Claude Code CLI ──────────────────────────────────────────────────────────
+RUN npm install -g @anthropic-ai/claude-code
+
+# ── code-server (VS Code in browser) ─────────────────────────────────────────
+RUN curl -fsSL https://code-server.dev/install.sh | sh
+
+# ── phpMyAdmin (lightweight local install) ───────────────────────────────────
+RUN mkdir -p /opt/phpmyadmin \
+    && curl -sL https://files.phpmyadmin.net/phpMyAdmin/5.2.1/phpMyAdmin-5.2.1-all-languages.tar.gz \
+    | tar -xz -C /opt/phpmyadmin --strip-components=1
+
+# ── Coder user ───────────────────────────────────────────────────────────────
+RUN useradd -m -s /bin/bash coder \
+    && echo "coder ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/coder
+
+USER coder
+WORKDIR /home/coder
+
+# ── VS Code extensions pre-install list ──────────────────────────────────────
+RUN code-server \
+    --install-extension bmewburn.vscode-intelephense-client \
+    --install-extension neilbrayfield.php-docblocker \
+    --install-extension MehediDracula.php-namespace-resolver \
+    --install-extension rifi2k.format-html-in-php \
+    --install-extension esbenp.prettier-vscode \
+    --install-extension dbaeumer.vscode-eslint \
+    --install-extension eamodio.gitlens \
+    --install-extension humao.rest-client \
+    --install-extension onecentlin.laravel-blade \
+    --install-extension shufo.vscode-blade-formatter \
+    2>/dev/null || true
+
+EXPOSE 8000 8081 8082
