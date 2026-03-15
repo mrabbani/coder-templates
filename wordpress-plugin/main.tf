@@ -231,7 +231,10 @@ module "code-server" {
 # ── Docker Network ─────────────────────────────────────────────────────────────
 
 resource "docker_network" "wp_network" {
-  name = "coder-${data.coder_workspace.me.id}-wp"
+  name     = "coder-${data.coder_workspace.me.id}-wp"
+  driver   = "bridge"
+  ipv6     = false
+  internal = false
 
   labels {
     label = "coder.owner"
