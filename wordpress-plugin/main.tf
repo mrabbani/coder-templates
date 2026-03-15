@@ -277,7 +277,8 @@ if [ "$WP_CONTAINER" != "localhost" ]; then
   done
 fi
 
-# Step 0b: Fix permissions on workspace volume (mounted as root)
+# Step 0b: Fix permissions on home + workspace volumes (mounted as root)
+sudo chown coder:coder /home/coder 2>/dev/null || true
 sudo chown -R coder:coder "$WORKSPACE" 2>/dev/null || true
 sudo chown -R coder:coder /home/coder/.claude 2>/dev/null || true
 
