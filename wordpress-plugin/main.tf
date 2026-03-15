@@ -299,10 +299,10 @@ resource "coder_script" "claude_code_ui_install" {
       cd claudecodeui
     fi
 
-    if [ ! -d "node_modules" ] || [ "package.json" -nt "node_modules" ]; then
-      echo "Installing Claude Code UI dependencies..."
-      npm install 2>&1
-    fi
+    # Always clean install to avoid npm optional dependency bug with rollup native modules
+    rm -rf node_modules package-lock.json 2>/dev/null || true
+    echo "Installing Claude Code UI dependencies..."
+    npm install 2>&1
 
     if [ ! -f "$${HOME}/.claude-code-ui.db" ]; then
       echo "Creating DB file..."
