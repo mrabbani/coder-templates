@@ -1,231 +1,478 @@
 terraform {
   required_providers {
     coder = {
-      source  = "coder/coder"
-      version = ">= 2.13.0"
+      source = "coder/coder"
     }
     docker = {
-      source  = "kreuzwerker/docker"
-      version = "~> 3.0"
+      source = "kreuzwerker/docker"
+    }
+    random = {
+      source = "hashicorp/random"
     }
   }
 }
 
-provider "coder" {}
-provider "docker" {}
+# ── Variables ──────────────────────────────────────────────────────────────────
 
-# ── Variables (secrets — set at template level) ──────────────────────────────
-
-variable "git_token" {
-  type        = string
+variable "docker_socket" {
   default     = ""
+  description = "(Optional) Docker socket URI"
+  type        = string
+}
+
+variable "wordpress_port" {
+  default     = 8080
+  description = "Host port for WordPress"
+  type        = number
+}
+
+variable "phpmyadmin_port" {
+  default     = 8081
+  description = "Host port for phpMyAdmin"
+  type        = number
+}
+
+variable "mysql_root_password" {
+  default     = ""
+  description = "MySQL root password (leave blank to auto-generate)"
+  type        = string
   sensitive   = true
-  description = "Git personal access token for cloning private repos"
 }
 
-# ── Parameters ───────────────────────────────────────────────────────────────
-
-data "coder_parameter" "plugins" {
-  name         = "plugins"
-  display_name = "Plugins (JSON)"
-  description  = "JSON array: [{\"slug\":\"my-plugin\",\"url\":\"https://github.com/org/repo\",\"branch\":\"main\"}]"
-  default = jsonencode([{
-    url    = "https://github.com/your-org/plugin-one"
-    slug   = "plugin-one"
-    branch = "main"
-  }])
-  mutable = true
+variable "wordpress_db_name" {
+  default     = "wordpress"
+  description = "WordPress database name"
+  type        = string
 }
 
-data "coder_parameter" "plugins_base_path" {
-  name         = "plugins_base_path"
-  display_name = "Plugins Base Path (Host)"
-  description  = "Absolute path on Coder server where plugin repos are cloned"
-  default      = "/home/ubuntu/plugins"
-  mutable      = true
+variable "wordpress_db_user" {
+  default     = "wpuser"
+  description = "WordPress database user"
+  type        = string
 }
 
-data "coder_parameter" "coder_access_url" {
-  name         = "coder_access_url"
-  display_name = "Coder Access URL"
-  description  = "URL containers use to reach Coder — use your Hetzner public IP, not localhost"
-  default      = "http://178.104.53.153:3000"
-  mutable      = true
+variable "wordpress_db_password" {
+  default     = ""
+  description = "WordPress database password (leave blank to auto-generate)"
+  type        = string
+  sensitive   = true
 }
 
-data "coder_parameter" "agent_arch" {
-  name         = "agent_arch"
-  display_name = "Agent Architecture"
-  default      = "amd64"
-  mutable      = false
-  option {
-    name  = "amd64 (Intel/AMD)"
-    value = "amd64"
-  }
-  option {
-    name  = "arm64 (Graviton)"
-    value = "arm64"
+# ── Locals & Data Sources ──────────────────────────────────────────────────────
+
+locals {
+  username           = data.coder_workspace_owner.me.name
+  workspace_name     = data.coder_workspace.me.name
+  mysql_root_pass    = var.mysql_root_password != "" ? var.mysql_root_password : random_password.mysql_root[0].result
+  wp_db_pass         = var.wordpress_db_password != "" ? var.wordpress_db_password : random_password.wp_db[0].result
+
+  # Shared label set applied to every Docker resource for easy cleanup
+  coder_labels = {
+    "coder.owner"      = data.coder_workspace_owner.me.name
+    "coder.owner_id"   = data.coder_workspace_owner.me.id
+    "coder.workspace_id"   = data.coder_workspace.me.id
+    "coder.workspace_name" = data.coder_workspace.me.name
   }
 }
 
-data "coder_parameter" "php_version" {
-  name         = "php_version"
-  display_name = "PHP Version"
-  default      = "8.2"
-  mutable      = false
-  option {
-    name  = "PHP 8.1"
-    value = "8.1"
-  }
-  option {
-    name  = "PHP 8.2"
-    value = "8.2"
-  }
-  option {
-    name  = "PHP 8.3"
-    value = "8.3"
-  }
+provider "docker" {
+  host = var.docker_socket != "" ? var.docker_socket : null
 }
 
-data "coder_parameter" "wp_version" {
-  name         = "wp_version"
-  display_name = "WordPress Version"
-  default      = "latest"
-  mutable      = true
-}
-
-# ── Workspace ────────────────────────────────────────────────────────────────
-
-data "coder_workspace"       "me" {}
+data "coder_provisioner"    "me" {}
+data "coder_workspace"      "me" {}
 data "coder_workspace_owner" "me" {}
 
-# ── Random secret for phpMyAdmin ─────────────────────────────────────────────
+# ── Random Passwords (generated when not supplied) ─────────────────────────────
 
-resource "random_string" "blowfish_secret" {
-  length  = 32
+resource "random_password" "mysql_root" {
+  count   = var.mysql_root_password == "" ? 1 : 0
+  length  = 20
   special = false
 }
 
-# ── Docker network ────────────────────────────────────────────────────────────
-
-resource "docker_network" "wp_network" {
-  name     = "wp-${data.coder_workspace.me.id}"
-  ipv6     = false
-  internal = false
+resource "random_password" "wp_db" {
+  count   = var.wordpress_db_password == "" ? 1 : 0
+  length  = 20
+  special = false
 }
 
-# ── MySQL ─────────────────────────────────────────────────────────────────────
+# ── Coder Agent ────────────────────────────────────────────────────────────────
 
-resource "docker_volume" "home_volume" {
-  name = "coder-${data.coder_workspace.me.id}-home"
-  lifecycle {
-    ignore_changes = all
+resource "coder_agent" "main" {
+  arch = data.coder_provisioner.me.arch
+  os   = "linux"
+
+  startup_script = <<-EOT
+    set -e
+
+    # First-run skeleton copy
+    if [ ! -f ~/.init_done ]; then
+      cp -rT /etc/skel ~
+      touch ~/.init_done
+    fi
+
+    # Print connection info to the workspace log
+    echo "============================================"
+    echo " WordPress  → http://localhost:${var.wordpress_port}"
+    echo " phpMyAdmin → http://localhost:${var.phpmyadmin_port}"
+    echo " DB name    : ${var.wordpress_db_name}"
+    echo " DB user    : ${var.wordpress_db_user}"
+    echo " DB pass    : ${local.wp_db_pass}"
+    echo " MySQL root : ${local.mysql_root_pass}"
+    echo "============================================"
+  EOT
+
+  env = {
+    GIT_AUTHOR_NAME     = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
+    GIT_AUTHOR_EMAIL    = data.coder_workspace_owner.me.email
+    GIT_COMMITTER_NAME  = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
+    GIT_COMMITTER_EMAIL = data.coder_workspace_owner.me.email
+
+    # Expose DB credentials as env vars inside the agent container
+    MYSQL_ROOT_PASSWORD = local.mysql_root_pass
+    WP_DB_NAME          = var.wordpress_db_name
+    WP_DB_USER          = var.wordpress_db_user
+    WP_DB_PASSWORD      = local.wp_db_pass
+  }
+
+  # ── Dashboard metadata ────────────────────────────────────────────────────
+
+  metadata {
+    display_name = "CPU Usage"
+    key          = "0_cpu_usage"
+    script       = "coder stat cpu"
+    interval     = 10
+    timeout      = 1
+  }
+
+  metadata {
+    display_name = "RAM Usage"
+    key          = "1_ram_usage"
+    script       = "coder stat mem"
+    interval     = 10
+    timeout      = 1
+  }
+
+  metadata {
+    display_name = "Home Disk"
+    key          = "3_home_disk"
+    script       = "coder stat disk --path $${HOME}"
+    interval     = 60
+    timeout      = 1
+  }
+
+  metadata {
+    display_name = "WordPress Status"
+    key          = "4_wp_status"
+    script       = "curl -sf -o /dev/null -w 'HTTP %{http_code}' http://wordpress:80 || echo 'unreachable'"
+    interval     = 30
+    timeout      = 5
+  }
+
+  metadata {
+    display_name = "MySQL Status"
+    key          = "5_mysql_status"
+    script       = "mysqladmin -h mysql -u root -p$MYSQL_ROOT_PASSWORD ping 2>/dev/null || echo 'unreachable'"
+    interval     = 30
+    timeout      = 5
+  }
+
+  metadata {
+    display_name = "CPU Usage (Host)"
+    key          = "6_cpu_usage_host"
+    script       = "coder stat cpu --host"
+    interval     = 10
+    timeout      = 1
+  }
+
+  metadata {
+    display_name = "Memory Usage (Host)"
+    key          = "7_mem_usage_host"
+    script       = "coder stat mem --host"
+    interval     = 10
+    timeout      = 1
   }
 }
 
-resource "docker_volume" "claude_config" {
-  name = "claude-config-${data.coder_workspace.me.id}"
+# ── Coder Apps (proxied URLs shown in dashboard) ───────────────────────────────
+
+resource "coder_app" "wordpress" {
+  agent_id     = coder_agent.main.id
+  slug         = "wordpress"
+  display_name = "WordPress"
+  url          = "http://localhost:${var.wordpress_port}"
+  icon         = "https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/WordPress_blue_logo.svg/1200px-WordPress_blue_logo.svg.png"
+  subdomain    = false
+  share        = "owner"
+
+  healthcheck {
+    url      = "http://localhost:${var.wordpress_port}"
+    interval = 15
+    threshold = 6
+  }
 }
 
-resource "docker_volume" "mysql_data" {
-  name = "mysql-data-${data.coder_workspace.me.id}"
+resource "coder_app" "phpmyadmin" {
+  agent_id     = coder_agent.main.id
+  slug         = "phpmyadmin"
+  display_name = "phpMyAdmin"
+  url          = "http://localhost:${var.phpmyadmin_port}"
+  icon         = "https://www.phpmyadmin.net/static/favicon.ico"
+  subdomain    = false
+  share        = "owner"
+
+  healthcheck {
+    url      = "http://localhost:${var.phpmyadmin_port}"
+    interval = 15
+    threshold = 6
+  }
 }
+
+# ── Code-server (VS Code in browser) ──────────────────────────────────────────
+
+module "code-server" {
+  count   = data.coder_workspace.me.start_count
+  source  = "registry.coder.com/coder/code-server/coder"
+  version = "~> 1.0"
+
+  agent_id = coder_agent.main.id
+  order    = 1
+}
+
+# ── Docker Network ─────────────────────────────────────────────────────────────
+
+resource "docker_network" "wp_network" {
+  name = "coder-${data.coder_workspace.me.id}-wp"
+
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
+  }
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
+  }
+}
+
+# ── Persistent Volumes ─────────────────────────────────────────────────────────
+
+resource "docker_volume" "home_volume" {
+  name = "coder-${data.coder_workspace.me.id}-home"
+  lifecycle { ignore_changes = all }
+
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
+  }
+  labels {
+    label = "coder.owner_id"
+    value = data.coder_workspace_owner.me.id
+  }
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
+  }
+  labels {
+    label = "coder.workspace_name_at_creation"
+    value = data.coder_workspace.me.name
+  }
+}
+
+resource "docker_volume" "mysql_volume" {
+  name = "coder-${data.coder_workspace.me.id}-mysql"
+  lifecycle { ignore_changes = all }
+
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
+  }
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
+  }
+}
+
+resource "docker_volume" "wordpress_volume" {
+  name = "coder-${data.coder_workspace.me.id}-wordpress"
+  lifecycle { ignore_changes = all }
+
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
+  }
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
+  }
+}
+
+# ── MySQL Container ────────────────────────────────────────────────────────────
 
 resource "docker_container" "mysql" {
   count   = data.coder_workspace.me.start_count
   image   = "mysql:8.0"
-  name    = "mysql-${data.coder_workspace.me.id}"
+  name    = "coder-${local.username}-${lower(local.workspace_name)}-mysql"
   restart = "unless-stopped"
-
-  networks_advanced {
-    name = docker_network.wp_network.name
-  }
 
   env = [
-    "MYSQL_ROOT_PASSWORD=wordpress",
-    "MYSQL_DATABASE=wordpress",
-    "MYSQL_USER=wordpress",
-    "MYSQL_PASSWORD=wordpress",
+    "MYSQL_ROOT_PASSWORD=${local.mysql_root_pass}",
+    "MYSQL_DATABASE=${var.wordpress_db_name}",
+    "MYSQL_USER=${var.wordpress_db_user}",
+    "MYSQL_PASSWORD=${local.wp_db_pass}",
   ]
-
-  volumes {
-    volume_name    = docker_volume.mysql_data.name
-    container_path = "/var/lib/mysql"
-  }
-}
-
-# ── WordPress ─────────────────────────────────────────────────────────────────
-
-resource "docker_container" "wordpress" {
-  count = data.coder_workspace.me.start_count
-  image = (
-    data.coder_parameter.wp_version.value == "latest"
-    ? "wordpress:php${data.coder_parameter.php_version.value}-apache"
-    : "wordpress:${data.coder_parameter.wp_version.value}-php${data.coder_parameter.php_version.value}-apache"
-  )
-  name    = "wp-${data.coder_workspace.me.id}"
-  restart = "unless-stopped"
 
   networks_advanced {
     name    = docker_network.wp_network.name
-    aliases = ["wordpress-internal"]
+    aliases = ["mysql"]
   }
+
+  volumes {
+    container_path = "/var/lib/mysql"
+    volume_name    = docker_volume.mysql_volume.name
+    read_only      = false
+  }
+
+  # Keep MySQL healthy before WordPress tries to connect
+  healthcheck {
+    test         = ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${local.mysql_root_pass}"]
+    interval     = "10s"
+    timeout      = "5s"
+    retries      = 5
+    start_period = "30s"
+  }
+
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
+  }
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
+  }
+  labels {
+    label = "coder.workspace_name"
+    value = data.coder_workspace.me.name
+  }
+}
+
+# ── WordPress Container ────────────────────────────────────────────────────────
+
+resource "docker_container" "wordpress" {
+  count   = data.coder_workspace.me.start_count
+  image   = "wordpress:latest"
+  name    = "coder-${local.username}-${lower(local.workspace_name)}-wordpress"
+  restart = "unless-stopped"
 
   env = [
-    "WORDPRESS_DB_HOST=mysql-${data.coder_workspace.me.id}",
-    "WORDPRESS_DB_USER=wordpress",
-    "WORDPRESS_DB_PASSWORD=wordpress",
-    "WORDPRESS_DB_NAME=wordpress",
-    "WORDPRESS_DEBUG=1",
-    "WORDPRESS_CONFIG_EXTRA=define('WP_DEBUG_LOG', true); define('WP_DEBUG_DISPLAY', false); define('SAVEQUERIES', true);",
+    "WORDPRESS_DB_HOST=mysql:3306",
+    "WORDPRESS_DB_NAME=${var.wordpress_db_name}",
+    "WORDPRESS_DB_USER=${var.wordpress_db_user}",
+    "WORDPRESS_DB_PASSWORD=${local.wp_db_pass}",
+    "WORDPRESS_TABLE_PREFIX=wp_",
   ]
 
-  # Mount each plugin from host into wp-content/plugins/
-  dynamic "volumes" {
-    for_each = jsondecode(data.coder_parameter.plugins.value)
-    content {
-      host_path      = "${data.coder_parameter.plugins_base_path.value}/${volumes.value.slug}"
-      container_path = "/var/www/html/wp-content/plugins/${volumes.value.slug}"
-    }
+  ports {
+    internal = 80
+    external = var.wordpress_port
   }
-}
-
-# ── Dev container ─────────────────────────────────────────────────────────────
-
-resource "docker_image" "dev" {
-  name = "wp-dev-${data.coder_workspace.me.id}"
-  build {
-    context    = path.module
-    dockerfile = "Dockerfile.dev"
-    build_args = {
-      PHP_VERSION = data.coder_parameter.php_version.value
-    }
-  }
-  triggers = {
-    dockerfile  = filemd5("${path.module}/Dockerfile.dev")
-    php_version = data.coder_parameter.php_version.value
-  }
-}
-
-resource "docker_container" "dev" {
-  count    = data.coder_workspace.me.start_count
-  image    = docker_image.dev.image_id
-  name     = "dev-${data.coder_workspace.me.id}"
-  hostname = data.coder_workspace.me.name
-  restart  = "unless-stopped"
 
   networks_advanced {
-    name = docker_network.wp_network.name
+    name    = docker_network.wp_network.name
+    aliases = ["wordpress"]
   }
+
+  volumes {
+    container_path = "/var/www/html"
+    volume_name    = docker_volume.wordpress_volume.name
+    read_only      = false
+  }
+
+  # Mount WordPress files into the agent's home so developers can edit them
+  volumes {
+    container_path = "/home/coder/wordpress"
+    volume_name    = docker_volume.wordpress_volume.name
+    read_only      = false
+  }
+
+  depends_on = [docker_container.mysql]
+
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
+  }
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
+  }
+  labels {
+    label = "coder.workspace_name"
+    value = data.coder_workspace.me.name
+  }
+}
+
+# ── phpMyAdmin Container ───────────────────────────────────────────────────────
+
+resource "docker_container" "phpmyadmin" {
+  count   = data.coder_workspace.me.start_count
+  image   = "phpmyadmin:latest"
+  name    = "coder-${local.username}-${lower(local.workspace_name)}-phpmyadmin"
+  restart = "unless-stopped"
+
+  env = [
+    "PMA_HOST=mysql",
+    "PMA_PORT=3306",
+    "PMA_USER=root",
+    "PMA_PASSWORD=${local.mysql_root_pass}",
+    # Allow login to any server (useful for debugging)
+    "PMA_ARBITRARY=1",
+    # Upload limit for SQL imports
+    "UPLOAD_LIMIT=256M",
+    "MAX_EXECUTION_TIME=600",
+  ]
+
+  ports {
+    internal = 80
+    external = var.phpmyadmin_port
+  }
+
+  networks_advanced {
+    name    = docker_network.wp_network.name
+    aliases = ["phpmyadmin"]
+  }
+
+  depends_on = [docker_container.mysql]
+
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
+  }
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
+  }
+  labels {
+    label = "coder.workspace_name"
+    value = data.coder_workspace.me.name
+  }
+}
+
+# ── Coder Agent Sidecar (workspace shell container) ───────────────────────────
+
+resource "docker_container" "workspace" {
+  count = data.coder_workspace.me.start_count
+  image = "codercom/enterprise-base:ubuntu"
+  name  = "coder-${local.username}-${lower(local.workspace_name)}"
+
+  hostname   = data.coder_workspace.me.name
+  entrypoint = ["sh", "-c", replace(coder_agent.main.init_script, "/localhost|127\\.0\\.0\\.1/", "host.docker.internal")]
 
   env = [
     "CODER_AGENT_TOKEN=${coder_agent.main.token}",
-    "CODER_AGENT_URL=${data.coder_parameter.coder_access_url.value}",
-    "PLUGINS_JSON_B64=${base64encode(data.coder_parameter.plugins.value)}",
-    "WP_HOST=wp-${data.coder_workspace.me.id}",
-    "MYSQL_HOST=mysql-${data.coder_workspace.me.id}",
-    "GIT_TOKEN=${var.git_token}",
-    "BLOWFISH_SECRET=${random_string.blowfish_secret.result}",
+    "MYSQL_ROOT_PASSWORD=${local.mysql_root_pass}",
+    "WP_DB_NAME=${var.wordpress_db_name}",
+    "WP_DB_USER=${var.wordpress_db_user}",
+    "WP_DB_PASSWORD=${local.wp_db_pass}",
   ]
 
   host {
@@ -233,322 +480,61 @@ resource "docker_container" "dev" {
     ip   = "host-gateway"
   }
 
-  # Persist entire home directory so Mutagen/Coder Desktop can install agents
+  networks_advanced {
+    name = docker_network.wp_network.name
+  }
+
   volumes {
-    volume_name    = docker_volume.home_volume.name
     container_path = "/home/coder"
+    volume_name    = docker_volume.home_volume.name
     read_only      = false
   }
 
+  # Mount WordPress files so developers can edit themes/plugins from VS Code
   volumes {
-    host_path      = data.coder_parameter.plugins_base_path.value
-    container_path = "/home/coder/workspace"
+    container_path = "/home/coder/wordpress"
+    volume_name    = docker_volume.wordpress_volume.name
+    read_only      = false
   }
 
-  # Claude Code config — persist login across restarts
-  volumes {
-    volume_name    = docker_volume.claude_config.name
-    container_path = "/home/coder/.claude"
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
   }
-
-  # Docker socket — needed for WP-CLI ssh:docker: transport
-  volumes {
-    host_path      = "/var/run/docker.sock"
-    container_path = "/var/run/docker.sock"
+  labels {
+    label = "coder.owner_id"
+    value = data.coder_workspace_owner.me.id
   }
-
-  entrypoint = ["sh", "-c", replace(coder_agent.main.init_script, "/localhost|127\\.0\\.0\\.1/", "host.docker.internal")]
-}
-
-# ── Coder agent ───────────────────────────────────────────────────────────────
-
-resource "coder_agent" "main" {
-  arch = data.coder_parameter.agent_arch.value
-  os   = "linux"
-  dir  = "/home/coder/workspace"
-
-  startup_script = <<-EOT
-#!/usr/bin/env bash
-# NO set -e — script must survive errors or agent disconnects
-set -uo pipefail
-
-WORKSPACE="/home/coder/workspace"
-
-# Prepare user home with default files on first start
-if [ ! -f ~/.init_done ]; then
-  cp -rT /etc/skel ~ 2>/dev/null || true
-  touch ~/.init_done
-fi
-
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  WordPress Multi-Plugin Dev Workspace"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-# Step 0: Start socat IPv4 proxy for WordPress container
-# Docker embedded DNS returns AAAA (IPv6) records for container hostnames,
-# but Apache only listens on IPv4 — causing 502 "connection refused" errors.
-# socat explicitly connects over TCP4, bypassing DNS IPv6 entirely.
-WP_CONTAINER="$${WP_HOST:-localhost}"
-if [ "$WP_CONTAINER" != "localhost" ]; then
-  echo "Starting IPv4 proxy for WordPress ($WP_CONTAINER)..."
-  for attempt in $(seq 1 30); do
-    WP_IPV4=$(getent ahostsv4 "$WP_CONTAINER" 2>/dev/null | awk 'NR==1{print $1}')
-    if [ -n "$WP_IPV4" ]; then
-      echo "Resolved $WP_CONTAINER -> $WP_IPV4"
-      socat TCP-LISTEN:8080,bind=127.0.0.1,fork,reuseaddr TCP4:$${WP_IPV4}:80 >/dev/null 2>&1 &
-      echo "WordPress proxy: 127.0.0.1:8080 -> $${WP_IPV4}:80"
-      break
-    fi
-    sleep 2
-  done
-fi
-
-# Step 0b: Fix permissions on mounted volumes
-sudo chown -R coder:coder "$WORKSPACE" 2>/dev/null || true
-sudo chown -R coder:coder /home/coder/.claude 2>/dev/null || true
-
-# Step 1: Install jq FIRST before any JSON parsing
-if ! command -v jq &>/dev/null; then
-  echo "Installing jq..."
-  sudo apt-get update -qq && sudo apt-get install -y jq -qq 2>/dev/null || true
-fi
-echo "jq: $(jq --version 2>/dev/null || echo NOT FOUND)"
-
-# Step 2: Decode PLUGINS_JSON from base64 safely
-RAW_B64="$${PLUGINS_JSON_B64:-W10=}"
-PLUGINS_JSON=$(echo "$RAW_B64" | base64 --decode 2>/dev/null \
-            || echo "$RAW_B64" | base64 -d  2>/dev/null \
-            || echo "[]")
-
-if ! echo "$PLUGINS_JSON" | jq empty 2>/dev/null; then
-  echo "WARNING: PLUGINS_JSON invalid, defaulting to []"
-  PLUGINS_JSON="[]"
-fi
-
-PLUGIN_COUNT=$(echo "$PLUGINS_JSON" | jq 'length')
-echo "$PLUGIN_COUNT plugin(s) configured"
-
-# Step 3: Git config
-git config --global user.email "dev@coder.local"
-git config --global user.name  "Coder Dev"
-
-if [ -n "$${GIT_TOKEN:-}" ]; then
-  git config --global credential.helper store
-  echo "$PLUGINS_JSON" | jq -r '.[].url // empty' 2>/dev/null \
-    | sed -E 's|https://([^/]+)/.*|\1|' | sort -u \
-    | while read -r H; do
-        echo "https://oauth2:$${GIT_TOKEN}@$${H}" >> ~/.git-credentials
-      done
-  chmod 600 ~/.git-credentials 2>/dev/null || true
-  echo "Git credentials configured"
-fi
-
-# Step 4: Process each plugin — clone if missing, then install deps
-SLUGS=()
-if [ "$PLUGIN_COUNT" -gt 0 ]; then
-  for i in $(seq 0 $((PLUGIN_COUNT - 1))); do
-    SLUG=$(echo "$PLUGINS_JSON" | jq -r ".[$i].slug // empty")
-    [ -z "$SLUG" ] && continue
-    URL=$(echo "$PLUGINS_JSON" | jq -r ".[$i].url // empty")
-    BRANCH=$(echo "$PLUGINS_JSON" | jq -r ".[$i].branch // \"main\"")
-    DIR="$WORKSPACE/$SLUG"
-    SLUGS+=("$SLUG")
-    echo ""
-    echo "── $SLUG ──────────────────────────────────────────"
-
-    # Clone the repo if directory doesn't exist or is empty
-    if [ ! -d "$DIR/.git" ]; then
-      if [ -n "$URL" ]; then
-        echo "  Cloning $URL (branch: $BRANCH)..."
-        git clone --branch "$BRANCH" --single-branch "$URL" "$DIR" 2>&1 | tail -3 || {
-          echo "  FAILED to clone $URL"
-          continue
-        }
-        echo "  Cloned successfully"
-      else
-        echo "  WARNING: No URL provided for $SLUG, skipping"
-        continue
-      fi
-    else
-      # Already cloned — pull latest
-      CUR_BRANCH=$(git -C "$DIR" branch --show-current 2>/dev/null || echo "detached")
-      echo "  Pulling latest on $CUR_BRANCH..."
-      git -C "$DIR" pull --ff-only 2>&1 | tail -3 || echo "  Pull failed (may have local changes)"
-      COMMIT=$(git -C "$DIR" log --oneline -1 2>/dev/null || echo "unknown")
-      echo "  Branch: $CUR_BRANCH | $COMMIT"
-    fi
-
-    if [ -f "$DIR/composer.json" ]; then
-      echo "  composer install..."
-      (cd "$DIR" && composer install --no-interaction --prefer-dist -q 2>&1 | tail -3) || true
-    fi
-    if [ -f "$DIR/package.json" ]; then
-      echo "  npm install..."
-      (cd "$DIR" && npm install --silent 2>&1 | tail -3) || true
-    fi
-    echo "  OK: $SLUG"
-  done
-fi
-
-# Step 5: Wait for MySQL
-echo ""
-echo "Waiting for MySQL ($${MYSQL_HOST:-localhost})..."
-T=0
-until mysqladmin ping -h"$${MYSQL_HOST:-localhost}" -u wordpress -pwordpress --silent 2>/dev/null; do
-  T=$((T+1)); [ $T -ge 30 ] && echo "MySQL timeout" && break; sleep 3
-done
-echo "MySQL ready"
-
-# Step 6: Wait for WordPress
-echo "Waiting for WordPress..."
-T=0
-until curl -sf "http://$${WP_HOST:-localhost}:80/" -o /dev/null 2>/dev/null; do
-  T=$((T+1)); [ $T -ge 20 ] && echo "WordPress timeout" && break; sleep 3
-done
-echo "WordPress responding"
-
-# Step 7: WP-CLI config — run commands inside the WordPress container via Docker
-# Requires Docker socket mounted into the dev container
-mkdir -p ~/.wp-cli
-cat > ~/.wp-cli/config.yml <<WPCLIEOF
-ssh: docker:$${WP_HOST:-localhost}
-path: /var/www/html
-url: http://127.0.0.1:8080
-user: admin
-WPCLIEOF
-# Ensure coder user can access Docker socket
-sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
-
-# Step 8: Install WordPress via WP-CLI over the WordPress container
-wp core is-installed 2>/dev/null \
-  && echo "WordPress already installed" \
-  || {
-    wp core install \
-      --url="http://localhost:8080" \
-      --title="Multi-Plugin Dev" \
-      --admin_user=admin \
-      --admin_password=admin \
-      --admin_email=dev@local.test \
-      --skip-email 2>/dev/null && echo "WordPress installed"
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
   }
-
-# Step 9: Activate plugins
-if [ "$${#SLUGS[@]}" -gt 0 ]; then
-  echo "Activating plugins..."
-  for SLUG in "$${SLUGS[@]}"; do
-    wp plugin activate "$SLUG" 2>/dev/null \
-      && echo "  OK: $SLUG" \
-      || echo "  FAILED: $SLUG"
-  done
-fi
-
-# Step 10: CLAUDE.md
-CLAUDE_MD="$WORKSPACE/CLAUDE.md"
-if [ ! -f "$CLAUDE_MD" ] && [ "$PLUGIN_COUNT" -gt 0 ]; then
-  {
-    echo "# Claude Code - Multi-Plugin Workspace"
-    echo ""
-    for i in $(seq 0 $((PLUGIN_COUNT - 1))); do
-      SLUG=$(echo "$PLUGINS_JSON" | jq -r ".[$i].slug   // empty")
-      URL=$(echo  "$PLUGINS_JSON" | jq -r ".[$i].url    // \"(local)\"")
-      BR=$(echo   "$PLUGINS_JSON" | jq -r ".[$i].branch // \"main\"")
-      DIR="$WORKSPACE/$SLUG"
-      MAIN=$(find "$DIR" -maxdepth 1 -name "*.php" -exec grep -l "Plugin Name:" {} \; 2>/dev/null | head -1 || true)
-      NAME=$([ -n "$MAIN" ] && grep -i "Plugin Name:" "$MAIN" | sed 's/.*Plugin Name:[[:space:]]*//' | tr -d '\r' || echo "$SLUG")
-      echo "## $NAME ($SLUG)"
-      echo "- Repo: $URL branch: $BR"
-      echo "- Dir: $DIR"
-      echo "- composer: $([ -f "$DIR/composer.json" ] && echo yes || echo no) | npm: $([ -f "$DIR/package.json" ] && echo yes || echo no)"
-      echo ""
-    done
-    echo "## Commands"
-    echo '```'
-    echo "wp plugin list"
-    echo "wp cache flush"
-    echo "tail -f /var/www/html/wp-content/debug.log"
-    echo "git add . && git commit -m 'feat:' && git push"
-    echo '```'
-  } > "$CLAUDE_MD"
-  echo "CLAUDE.md generated"
-fi
-
-# Step 11: Start VS Code — bind to 127.0.0.1 (agent-local, IPv4 only)
-echo "Starting VS Code..."
-code-server \
-  --bind-addr 127.0.0.1:8081 \
-  --auth none \
-  --disable-telemetry \
-  "$WORKSPACE" >/tmp/code-server.log 2>&1 &
-
-# Step 12: Start phpMyAdmin — bind to 127.0.0.1
-echo "Starting phpMyAdmin..."
-sudo tee /opt/phpmyadmin/config.inc.php >/dev/null <<PMAEOF
-<?php
-\$cfg['Servers'][1]['host']      = getenv('MYSQL_HOST') ?: 'localhost';
-\$cfg['Servers'][1]['user']      = 'wordpress';
-\$cfg['Servers'][1]['password']  = 'wordpress';
-\$cfg['Servers'][1]['auth_type'] = 'config';
-\$cfg['blowfish_secret']         = '$${BLOWFISH_SECRET:-coder-dev-fallback-secret}';
-PMAEOF
-php -S 127.0.0.1:8082 -t /opt/phpmyadmin/ >/tmp/phpmyadmin.log 2>&1 &
-
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  DONE — use app buttons in Coder dashboard"
-echo "  WP Admin: admin / admin"
-if [ "$${#SLUGS[@]}" -gt 0 ]; then
-  for SLUG in "$${SLUGS[@]}"; do echo "  Plugin: ~/workspace/$SLUG"; done
-fi
-echo "  Claude: claude"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  EOT
-
-  metadata {
-    display_name = "PHP Version"
-    key          = "php_version"
-    script       = "php --version | head -1"
-    interval     = 60
-    timeout      = 5
-  }
-
-  metadata {
-    display_name = "Active Plugins"
-    key          = "active_plugins"
-    script       = "wp plugin list --status=active --field=name 2>/dev/null | tr '\n' ',' | sed 's/,$//' || echo 'not ready'"
-    interval     = 60
-    timeout      = 10
+  labels {
+    label = "coder.workspace_name"
+    value = data.coder_workspace.me.name
   }
 }
 
-# ── Apps ──────────────────────────────────────────────────────────────────────
+# ── Outputs ────────────────────────────────────────────────────────────────────
 
-resource "coder_app" "wordpress" {
-  agent_id     = coder_agent.main.id
-  slug         = "wordpress"
-  display_name = "WordPress"
-  # Local socat proxy — forwards to WordPress container over IPv4 only
-  url          = "http://127.0.0.1:8080"
-  icon         = "/icon/wordpress.svg"
-  share        = "owner"
-  subdomain    = true
+output "wordpress_url" {
+  value       = "http://localhost:${var.wordpress_port}"
+  description = "WordPress site URL"
 }
 
-resource "coder_app" "code_server" {
-  agent_id     = coder_agent.main.id
-  slug         = "code-server"
-  display_name = "VS Code"
-  url          = "http://127.0.0.1:8081?folder=/home/coder/workspace"
-  icon         = "/icon/code.svg"
-  share        = "owner"
-  subdomain    = true
+output "phpmyadmin_url" {
+  value       = "http://localhost:${var.phpmyadmin_port}"
+  description = "phpMyAdmin URL"
 }
 
-resource "coder_app" "phpmyadmin" {
-  agent_id     = coder_agent.main.id
-  slug         = "phpmyadmin"
-  display_name = "phpMyAdmin"
-  url          = "http://127.0.0.1:8082"
-  icon         = "/icon/database.svg"
-  share        = "owner"
-  subdomain    = true
+output "mysql_root_password" {
+  value       = local.mysql_root_pass
+  description = "MySQL root password"
+  sensitive   = true
+}
+
+output "wordpress_db_password" {
+  value       = local.wp_db_pass
+  description = "WordPress DB password"
+  sensitive   = true
 }
