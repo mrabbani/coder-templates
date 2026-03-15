@@ -105,11 +105,6 @@ resource "coder_agent" "main" {
       sudo apt-get update -qq && sudo apt-get install -y socat -qq 2>/dev/null || true
     fi
 
-    # Install Claude Code CLI
-    if ! command -v claude &>/dev/null; then
-      npm install -g @anthropic-ai/claude-code 2>/dev/null || true
-    fi
-
     # Start IPv4 proxies (Docker DNS returns IPv6 but containers listen on IPv4)
     for entry in "wordpress:80:8080" "phpmyadmin:80:8081"; do
       CONTAINER=$(echo "$entry" | cut -d: -f1)
@@ -477,11 +472,24 @@ resource "docker_container" "phpmyadmin" {
   }
 }
 
+# ── Dev image (built from Dockerfile.dev — includes PHP, WP-CLI, Claude, etc.) ─
+
+resource "docker_image" "dev" {
+  name = "wp-dev-${data.coder_workspace.me.id}"
+  build {
+    context    = path.module
+    dockerfile = "Dockerfile.dev"
+  }
+  triggers = {
+    dockerfile = filemd5("${path.module}/Dockerfile.dev")
+  }
+}
+
 # ── Coder Agent Sidecar (workspace shell container) ───────────────────────────
 
 resource "docker_container" "workspace" {
   count = data.coder_workspace.me.start_count
-  image = "codercom/enterprise-base:ubuntu"
+  image = docker_image.dev.image_id
   name  = "coder-${local.username}-${lower(local.workspace_name)}"
 
   hostname   = data.coder_workspace.me.name
