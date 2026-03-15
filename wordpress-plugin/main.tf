@@ -254,56 +254,17 @@ module "code-server" {
   order    = 1
 }
 
-# ── Claude Code UI ────────────────────────────────────────────────────────────
+# ── Claude Code ───────────────────────────────────────────────────────────────
 
-resource "coder_script" "claude_code_ui_install" {
-  agent_id     = coder_agent.main.id
-  display_name = "Install Claude Code UI"
-  icon         = "/emojis/1f4ac.png"
-  run_on_start = true
-  start_blocks_login = false
-  script       = <<-SCRIPT
-    #!/bin/bash
-    set +e
-    INSTALL_PATH="$HOME/.claude-code-ui"
-    PORT=13376
-
-    # Install Claude Code CLI if not present
-    if ! command -v claude &>/dev/null; then
-      echo "Installing Claude Code CLI..."
-      npm install -g @anthropic-ai/claude-code || true
-    fi
-
-    # Install claude-code-ui
-    if [ ! -d "$INSTALL_PATH" ]; then
-      echo "Installing Claude Code UI..."
-      mkdir -p "$INSTALL_PATH"
-      cd "$INSTALL_PATH"
-      npm init -y 2>/dev/null
-      npm install claude-code-ui 2>/dev/null || true
-    fi
-
-    # Start Claude Code UI
-    cd "$INSTALL_PATH"
-    if [ -f "node_modules/.bin/claude-code-ui" ]; then
-      echo "Starting Claude Code UI on port $PORT..."
-      npx claude-code-ui --port $PORT &
-    elif command -v claude &>/dev/null; then
-      echo "Starting Claude Code server on port $PORT..."
-      claude server --port $PORT &
-    fi
-  SCRIPT
-}
-
-resource "coder_app" "claude_code_ui" {
-  agent_id     = coder_agent.main.id
-  slug         = "ccui"
-  display_name = "Claude Code UI"
-  icon         = "/emojis/1f4ac.png"
-  url          = "http://127.0.0.1:13376"
-  share        = "owner"
-  subdomain    = true
-  open_in      = "tab"
+module "claude-code" {
+  count               = data.coder_workspace.me.start_count
+  source              = "registry.coder.com/coder/claude-code/coder"
+  version             = "~> 1.0"
+  agent_id            = coder_agent.main.id
+  install_claude_code = true
+  claude_code_version = "latest"
+  subdomain           = true
+  order               = 99
 }
 
 
