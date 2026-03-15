@@ -270,9 +270,9 @@ resource "coder_script" "claude_code_ui_install" {
   start_blocks_login = false
   script = <<-EOT
     #!/usr/bin/env bash
-    set -uo pipefail
 
-    INSTALL_PATH="$${HOME}/.claude-code-ui"
+    CODER_HOME="/home/coder"
+    INSTALL_PATH="$${CODER_HOME}/.claude-code-ui"
     PORT=13376
     INIT_DB="${file("${path.module}/init.db.txt")}"
 
@@ -286,7 +286,7 @@ resource "coder_script" "claude_code_ui_install" {
     fi
 
     # Ensure home dir is owned by coder (fresh volume may be root-owned)
-    sudo chown -R coder:coder /home/coder 2>/dev/null || true
+    chown -R coder:coder "$${CODER_HOME}" 2>/dev/null || true
 
     mkdir -p "$${INSTALL_PATH}"
 
@@ -304,14 +304,14 @@ resource "coder_script" "claude_code_ui_install" {
     echo "Installing Claude Code UI dependencies..."
     npm install 2>&1
 
-    if [ ! -f "$${HOME}/.claude-code-ui.db" ]; then
+    if [ ! -f "$${CODER_HOME}/.claude-code-ui.db" ]; then
       echo "Creating DB file..."
-      echo "$${INIT_DB}" | base64 -d > "$${HOME}/.claude-code-ui.db"
+      echo "$${INIT_DB}" | base64 -d > "$${CODER_HOME}/.claude-code-ui.db"
     fi
 
     echo "Claude Code UI installation completed!"
 
-    export PATH="$${HOME}/.local/bin:$${PATH}"
+    export PATH="$${CODER_HOME}/.local/bin:$${PATH}"
     printf '%s\n' \
       "PORT=$${PORT}" \
       "VITE_PORT=5173" \
@@ -319,13 +319,13 @@ resource "coder_script" "claude_code_ui_install" {
       "VITE_IS_PLATFORM=true" \
       "VITE_CONTEXT_WINDOW=160000" \
       "CONTEXT_WINDOW=160000" \
-      "DATABASE_PATH=$${HOME}/.claude-code-ui.db" \
+      "DATABASE_PATH=$${CODER_HOME}/.claude-code-ui.db" \
       > .env
 
-    export DATABASE_PATH=$${HOME}/.claude-code-ui.db
-    nohup npm start > "$${HOME}/.claude-code-ui.log" 2>&1 &
+    export DATABASE_PATH="$${CODER_HOME}/.claude-code-ui.db"
+    nohup npm start > "$${CODER_HOME}/.claude-code-ui.log" 2>&1 &
     CCUI_PID=$!
-    echo $${CCUI_PID} > "$${HOME}/.claude-code-ui.pid"
+    echo $${CCUI_PID} > "$${CODER_HOME}/.claude-code-ui.pid"
     echo "Claude Code UI started with PID $${CCUI_PID} on port $${PORT}"
 
     # Wait briefly and check if it's actually running
@@ -334,7 +334,7 @@ resource "coder_script" "claude_code_ui_install" {
       echo "Claude Code UI is running"
     else
       echo "ERROR: Claude Code UI failed to start. Log output:"
-      cat "$${HOME}/.claude-code-ui.log" 2>/dev/null || true
+      cat "$${CODER_HOME}/.claude-code-ui.log" 2>/dev/null || true
     fi
   EOT
 }
