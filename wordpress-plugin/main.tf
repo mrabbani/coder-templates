@@ -130,6 +130,13 @@ resource "coder_agent" "main" {
     sudo chown -R coder:coder /home/coder/wordpress 2>/dev/null || true
     sudo chmod -R 777 /home/coder/wordpress 2>/dev/null || true
 
+    # Background watcher: auto-fix permissions on wp-content every 5 seconds
+    # so synced plugins/themes are immediately visible to WordPress
+    (while true; do
+      sudo chmod -R 777 /home/coder/wordpress/wp-content 2>/dev/null || true
+      sleep 5
+    done) &
+
     # Print connection info to the workspace log
     echo "============================================"
     echo " WordPress  → via Coder dashboard"
