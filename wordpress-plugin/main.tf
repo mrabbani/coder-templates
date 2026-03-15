@@ -263,7 +263,6 @@ module "claude-code" {
   agent_id            = coder_agent.main.id
   install_claude_code = true
   claude_code_version = "latest"
-  subdomain           = true
   order               = 99
 }
 
