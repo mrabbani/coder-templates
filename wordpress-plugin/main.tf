@@ -121,6 +121,9 @@ resource "coder_agent" "main" {
       done
     done
 
+    # Make wp-content writable so coder user can sync plugins/themes
+    chmod -R 777 /home/coder/wordpress/wp-content 2>/dev/null || true
+
     # Print connection info to the workspace log
     echo "============================================"
     echo " WordPress  → via Coder dashboard"
