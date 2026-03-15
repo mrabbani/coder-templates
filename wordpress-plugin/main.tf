@@ -286,7 +286,7 @@ resource "coder_script" "claude_code_ui_install" {
     fi
 
     # Ensure home dir is owned by coder (fresh volume may be root-owned)
-    sudo chown -R coder:coder "$${HOME}" 2>/dev/null || true
+    sudo chown -R coder:coder /home/coder 2>/dev/null || true
 
     mkdir -p "$${INSTALL_PATH}"
 
