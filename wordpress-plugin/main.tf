@@ -130,11 +130,6 @@ resource "coder_agent" "main" {
     sudo chown -R coder:coder /home/coder/wordpress 2>/dev/null || true
     sudo chmod -R 777 /home/coder/wordpress 2>/dev/null || true
 
-    # Background watcher: fix permissions only on files that need it (every 30s)
-    (while true; do
-      find /home/coder/wordpress/wp-content -not -perm 777 -exec chmod 777 {} + 2>/dev/null || true
-      sleep 30
-    done) &
 
     # Print connection info to the workspace log
     echo "============================================"
