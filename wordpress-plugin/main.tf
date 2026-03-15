@@ -105,6 +105,11 @@ resource "coder_agent" "main" {
       sudo apt-get update -qq && sudo apt-get install -y socat -qq 2>/dev/null || true
     fi
 
+    # Install Claude Code CLI
+    if ! command -v claude &>/dev/null; then
+      npm install -g @anthropic-ai/claude-code 2>/dev/null || true
+    fi
+
     # Start IPv4 proxies (Docker DNS returns IPv6 but containers listen on IPv4)
     for entry in "wordpress:80:8080" "phpmyadmin:80:8081"; do
       CONTAINER=$(echo "$entry" | cut -d: -f1)
