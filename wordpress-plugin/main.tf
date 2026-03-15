@@ -130,11 +130,10 @@ resource "coder_agent" "main" {
     sudo chown -R coder:coder /home/coder/wordpress 2>/dev/null || true
     sudo chmod -R 777 /home/coder/wordpress 2>/dev/null || true
 
-    # Background watcher: auto-fix permissions on wp-content every 5 seconds
-    # so synced plugins/themes are immediately visible to WordPress
+    # Background watcher: fix permissions only on files that need it (every 30s)
     (while true; do
-      sudo chmod -R 777 /home/coder/wordpress/wp-content 2>/dev/null || true
-      sleep 5
+      find /home/coder/wordpress/wp-content -not -perm 777 -exec chmod 777 {} + 2>/dev/null || true
+      sleep 30
     done) &
 
     # Print connection info to the workspace log
