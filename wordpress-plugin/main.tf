@@ -300,7 +300,7 @@ resource "coder_app" "claude_code_ui" {
   slug         = "ccui"
   display_name = "Claude Code UI"
   icon         = "/emojis/1f4ac.png"
-  url          = "http://localhost:13376"
+  url          = "http://127.0.0.1:13376"
   share        = "owner"
   subdomain    = true
   open_in      = "tab"
