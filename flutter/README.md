@@ -62,7 +62,6 @@ coder open my-flutter
 | `repo_url` | HTTPS URL of the Flutter project repo | (empty) |
 | `repo_branch` | Branch to clone | `main` |
 | `project_base_path` | Host path for project storage | `/home/ubuntu/flutter-projects` |
-| `coder_access_url` | URL containers use to reach Coder | `http://178.104.53.153:3000` |
 | `agent_arch` | CPU architecture (amd64 / arm64) | amd64 |
 | `flutter_channel` | Flutter channel (stable / beta / dev) | stable |
 | `java_version` | JDK version (17 / 21) | 17 |
@@ -124,7 +123,7 @@ flutter emulators              # List available emulators
 ## Troubleshooting
 
 ### "Peer is not connected"
-The Coder agent can't reach the Coder server. Check that `coder_access_url` is reachable from inside Docker containers.
+The Coder agent can't reach the Coder server. The template maps `host.docker.internal` to the host gateway — verify Docker's `host-gateway` resolves correctly on your server.
 
 ### Flutter doctor warnings
 Run `flutter doctor -v` for detailed diagnostics. Android license warnings can be resolved with `flutter doctor --android-licenses`.

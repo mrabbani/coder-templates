@@ -65,7 +65,6 @@ coder open my-laravel
 | `repo_url` | HTTPS URL of the Laravel project repo | (empty) |
 | `repo_branch` | Branch to clone | `main` |
 | `project_base_path` | Host path for project storage | `/home/ubuntu/laravel-projects` |
-| `coder_access_url` | URL containers use to reach Coder | `http://178.104.53.153:3000` |
 | `agent_arch` | CPU architecture (amd64 / arm64) | amd64 |
 | `php_version` | PHP version (8.1 / 8.2 / 8.3) | 8.2 |
 
@@ -122,7 +121,7 @@ php artisan migrate:fresh --seed
 ## Troubleshooting
 
 ### "Peer is not connected"
-The Coder agent can't reach the Coder server. Check that `coder_access_url` is reachable from inside Docker containers.
+The Coder agent can't reach the Coder server. The template maps `host.docker.internal` to the host gateway — verify Docker's `host-gateway` resolves correctly on your server.
 
 ### MySQL timeout
 Verify the MySQL container is running: `docker ps --filter "name=mysql-"`

@@ -49,14 +49,6 @@ data "coder_parameter" "project_base_path" {
   mutable      = true
 }
 
-data "coder_parameter" "coder_access_url" {
-  name         = "coder_access_url"
-  display_name = "Coder Access URL"
-  description  = "URL containers use to reach Coder — use your public IP, not localhost"
-  default      = "http://178.104.53.153:3000"
-  mutable      = true
-}
-
 data "coder_parameter" "agent_arch" {
   name         = "agent_arch"
   display_name = "Agent Architecture"
@@ -152,7 +144,6 @@ resource "docker_container" "dev" {
 
   env = [
     "CODER_AGENT_TOKEN=${coder_agent.main.token}",
-    "CODER_AGENT_URL=${data.coder_parameter.coder_access_url.value}",
     "GIT_TOKEN=${var.git_token}",
     "REPO_URL=${data.coder_parameter.repo_url.value}",
     "REPO_BRANCH=${data.coder_parameter.repo_branch.value}",
