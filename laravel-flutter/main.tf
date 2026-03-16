@@ -260,6 +260,49 @@ resource "coder_agent" "main" {
     done
     echo "MySQL ready"
 
+    # ── Laravel auto-setup (runs if artisan exists in any subdir) ──────────
+    for DIR in "$WORKSPACE"/*/; do
+      if [ -f "$DIR/artisan" ]; then
+        echo "Found Laravel project at $DIR"
+
+        # .env setup
+        if [ -f "$DIR/.env.example" ] && [ ! -f "$DIR/.env" ]; then
+          cp "$DIR/.env.example" "$DIR/.env"
+          sed -i "s|^DB_HOST=.*|DB_HOST=mysql|"            "$DIR/.env"
+          sed -i "s|^DB_DATABASE=.*|DB_DATABASE=laravel|"   "$DIR/.env"
+          sed -i "s|^DB_USERNAME=.*|DB_USERNAME=laravel|"   "$DIR/.env"
+          sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=laravel|"   "$DIR/.env"
+          sed -i "s|^REDIS_HOST=.*|REDIS_HOST=redis|"       "$DIR/.env"
+          echo ".env configured for $DIR"
+        fi
+
+        # App key
+        APP_KEY=$(grep "^APP_KEY=" "$DIR/.env" 2>/dev/null | cut -d= -f2)
+        [ -z "$APP_KEY" ] && (cd "$DIR" && php artisan key:generate --force) || true
+
+        # Composer & npm
+        [ -f "$DIR/composer.json" ] && (cd "$DIR" && composer install --no-interaction --prefer-dist -q 2>&1 | tail -5) || true
+        [ -f "$DIR/package.json" ] && (cd "$DIR" && npm install --silent 2>&1 | tail -5) || true
+
+        # Migrations
+        (cd "$DIR" && php artisan migrate --force 2>&1 | tail -5) || true
+
+        # Serve
+        echo "Starting Laravel dev server from $DIR on port 8000..."
+        (cd "$DIR" && php artisan serve --host=0.0.0.0 --port=8000 >/tmp/laravel-serve.log 2>&1) &
+        break
+      fi
+    done
+
+    # ── Flutter auto-setup (runs if pubspec.yaml exists in any subdir) ─────
+    for DIR in "$WORKSPACE"/*/; do
+      if [ -f "$DIR/pubspec.yaml" ]; then
+        echo "Found Flutter project at $DIR"
+        (cd "$DIR" && flutter pub get 2>&1 | tail -5) || true
+        break
+      fi
+    done
+
     flutter doctor 2>&1 || true
 
     # phpMyAdmin
@@ -275,9 +318,12 @@ PMAEOF
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Laravel API: http://localhost:8000 (if project found)"
     echo "  phpMyAdmin:  http://localhost:8082"
     echo "  Claude:      claude"
-    echo "  Clone your repos into workspace/ to get started"
+    echo ""
+    echo "  Clone your repos into workspace/ then restart"
+    echo "  workspace to auto-setup Laravel & Flutter"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   EOT
 
@@ -315,6 +361,22 @@ PMAEOF
 }
 
 # ── Apps ──────────────────────────────────────────────────────────────────────
+
+resource "coder_app" "laravel" {
+  agent_id     = coder_agent.main.id
+  slug         = "laravel"
+  display_name = "Laravel API"
+  url          = "http://127.0.0.1:8000"
+  icon         = "/icon/php.svg"
+  share        = "owner"
+  subdomain    = true
+
+  healthcheck {
+    url       = "http://127.0.0.1:8000"
+    interval  = 15
+    threshold = 6
+  }
+}
 
 resource "coder_app" "phpmyadmin" {
   agent_id     = coder_agent.main.id
