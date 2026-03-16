@@ -65,15 +65,6 @@ coder open my-fullstack
 
 ---
 
-## Template Parameters
-
-| Parameter | Description | Default |
-|---|---|---|
-| `laravel_repo_url` | HTTPS URL of the Laravel backend repo | (empty) |
-| `laravel_repo_branch` | Branch to clone for Laravel | `main` |
-| `flutter_repo_url` | HTTPS URL of the Flutter app repo | (empty) |
-| `flutter_repo_branch` | Branch to clone for Flutter | `main` |
-
 ## Template Variables (set when pushing template)
 
 | Variable | Description | Default |
@@ -84,28 +75,7 @@ coder open my-fullstack
 | `java_version` | JDK version | `17` |
 | `project_base_path` | Host path for project storage | `/home/ubuntu/laravel-flutter-projects` |
 
----
-
-## Project Structure
-
-```
-workspace/
-├── backend/                    # Laravel API
-│   ├── artisan
-│   ├── composer.json
-│   ├── app/
-│   ├── routes/
-│   ├── database/
-│   └── ...
-├── mobile/                     # Flutter app
-│   ├── pubspec.yaml
-│   ├── lib/
-│   ├── android/
-│   ├── ios/
-│   ├── test/
-│   └── ...
-└── CLAUDE.md                   # Auto-generated project context
-```
+No user-facing parameters — workspace starts immediately with all services ready. Clone your repos manually into `workspace/`.
 
 ---
 
@@ -113,14 +83,9 @@ workspace/
 
 1. Fixes volume permissions
 2. Configures Git credentials (if `git_token` provided)
-3. Clones Laravel repo into `backend/` (if URL provided)
-4. Runs `composer install` and `npm install` for Laravel
-5. Copies `.env.example` → `.env` with DB/Redis hosts pre-configured
-6. Generates `APP_KEY` if empty
-7. Waits for MySQL, then runs `php artisan migrate`
-8. Clones Flutter repo into `mobile/` (if URL provided)
-9. Runs `flutter pub get` and `flutter doctor`
-10. Starts Laravel dev server, code-server, and phpMyAdmin
+3. Waits for MySQL
+4. Runs `flutter doctor`
+5. Starts phpMyAdmin and code-server
 
 ---
 

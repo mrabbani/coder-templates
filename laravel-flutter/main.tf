@@ -51,40 +51,6 @@ variable "project_base_path" {
   description = "Host path where projects are stored"
 }
 
-# ── Parameters (user-facing at workspace creation) ───────────────────────────
-
-data "coder_parameter" "laravel_repo_url" {
-  name         = "laravel_repo_url"
-  display_name = "Laravel Repo URL"
-  description  = "HTTPS URL of the Laravel backend repository"
-  default      = ""
-  mutable      = true
-}
-
-data "coder_parameter" "laravel_repo_branch" {
-  name         = "laravel_repo_branch"
-  display_name = "Laravel Branch"
-  description  = "Branch to clone for the Laravel project"
-  default      = "main"
-  mutable      = true
-}
-
-data "coder_parameter" "flutter_repo_url" {
-  name         = "flutter_repo_url"
-  display_name = "Flutter Repo URL"
-  description  = "HTTPS URL of the Flutter app repository"
-  default      = ""
-  mutable      = true
-}
-
-data "coder_parameter" "flutter_repo_branch" {
-  name         = "flutter_repo_branch"
-  display_name = "Flutter Branch"
-  description  = "Branch to clone for the Flutter project"
-  default      = "main"
-  mutable      = true
-}
-
 # ── Locals & Data Sources ────────────────────────────────────────────────────
 
 locals {
@@ -222,10 +188,6 @@ resource "docker_container" "dev" {
     "MYSQL_HOST=mysql",
     "REDIS_HOST=redis",
     "GIT_TOKEN=${var.git_token}",
-    "LARAVEL_REPO_URL=${data.coder_parameter.laravel_repo_url.value}",
-    "LARAVEL_REPO_BRANCH=${data.coder_parameter.laravel_repo_branch.value}",
-    "FLUTTER_REPO_URL=${data.coder_parameter.flutter_repo_url.value}",
-    "FLUTTER_REPO_BRANCH=${data.coder_parameter.flutter_repo_branch.value}",
     "BLOWFISH_SECRET=${random_string.blowfish_secret.result}",
   ]
 
@@ -287,52 +249,7 @@ resource "coder_agent" "main" {
     # Git credentials
     if [ -n "$${GIT_TOKEN:-}" ]; then
       git config --global credential.helper store
-      for URL in "$${LARAVEL_REPO_URL:-}" "$${FLUTTER_REPO_URL:-}"; do
-        if [ -n "$URL" ]; then
-          HOST=$(echo "$URL" | sed -E 's|https://([^/]+)/.*|\1|')
-          grep -q "$HOST" ~/.git-credentials 2>/dev/null || \
-            echo "https://oauth2:$${GIT_TOKEN}@$${HOST}" >> ~/.git-credentials
-        fi
-      done
       chmod 600 ~/.git-credentials 2>/dev/null || true
-    fi
-
-    # ── Laravel Backend ────────────────────────────────────────────────────────
-    LARAVEL_REPO_URL="$${LARAVEL_REPO_URL:-}"
-    LARAVEL_REPO_BRANCH="$${LARAVEL_REPO_BRANCH:-main}"
-
-    if [ -n "$LARAVEL_REPO_URL" ]; then
-      mkdir -p "$LARAVEL_DIR"
-      if [ ! -d "$LARAVEL_DIR/.git" ]; then
-        echo "Cloning Laravel repo..."
-        TMPDIR=$(mktemp -d)
-        git clone --branch "$LARAVEL_REPO_BRANCH" --single-branch "$LARAVEL_REPO_URL" "$TMPDIR" 2>&1 | tail -5 || {
-          echo "FAILED to clone"; rm -rf "$TMPDIR"
-        }
-        if [ -d "$TMPDIR/.git" ]; then
-          shopt -s dotglob; mv "$TMPDIR"/* "$LARAVEL_DIR/" 2>/dev/null || true; shopt -u dotglob
-          rm -rf "$TMPDIR"
-        fi
-      else
-        git -C "$LARAVEL_DIR" pull --ff-only 2>&1 | tail -3 || true
-      fi
-
-      [ -f "$LARAVEL_DIR/composer.json" ] && (cd "$LARAVEL_DIR" && composer install --no-interaction --prefer-dist -q 2>&1 | tail -5) || true
-      [ -f "$LARAVEL_DIR/package.json" ] && (cd "$LARAVEL_DIR" && npm install --silent 2>&1 | tail -5) || true
-
-      if [ -f "$LARAVEL_DIR/.env.example" ] && [ ! -f "$LARAVEL_DIR/.env" ]; then
-        cp "$LARAVEL_DIR/.env.example" "$LARAVEL_DIR/.env"
-        sed -i "s|^DB_HOST=.*|DB_HOST=mysql|"            "$LARAVEL_DIR/.env"
-        sed -i "s|^DB_DATABASE=.*|DB_DATABASE=laravel|"   "$LARAVEL_DIR/.env"
-        sed -i "s|^DB_USERNAME=.*|DB_USERNAME=laravel|"   "$LARAVEL_DIR/.env"
-        sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=laravel|"   "$LARAVEL_DIR/.env"
-        sed -i "s|^REDIS_HOST=.*|REDIS_HOST=redis|"       "$LARAVEL_DIR/.env"
-      fi
-
-      if [ -f "$LARAVEL_DIR/artisan" ]; then
-        APP_KEY=$(grep "^APP_KEY=" "$LARAVEL_DIR/.env" 2>/dev/null | cut -d= -f2)
-        [ -z "$APP_KEY" ] && (cd "$LARAVEL_DIR" && php artisan key:generate --force) || true
-      fi
     fi
 
     # Wait for MySQL
@@ -341,36 +258,9 @@ resource "coder_agent" "main" {
     until mysqladmin ping -h mysql -u laravel -plaravel --silent 2>/dev/null; do
       T=$((T+1)); [ $T -ge 30 ] && echo "MySQL timeout" && break; sleep 3
     done
-
-    [ -f "$LARAVEL_DIR/artisan" ] && (cd "$LARAVEL_DIR" && php artisan migrate --force 2>&1 | tail -5) || true
-
-    # ── Flutter Mobile ─────────────────────────────────────────────────────────
-    FLUTTER_REPO_URL="$${FLUTTER_REPO_URL:-}"
-    FLUTTER_REPO_BRANCH="$${FLUTTER_REPO_BRANCH:-main}"
-
-    if [ -n "$FLUTTER_REPO_URL" ]; then
-      mkdir -p "$FLUTTER_DIR"
-      if [ ! -d "$FLUTTER_DIR/.git" ]; then
-        echo "Cloning Flutter repo..."
-        TMPDIR=$(mktemp -d)
-        git clone --branch "$FLUTTER_REPO_BRANCH" --single-branch "$FLUTTER_REPO_URL" "$TMPDIR" 2>&1 | tail -5 || {
-          echo "FAILED to clone"; rm -rf "$TMPDIR"
-        }
-        if [ -d "$TMPDIR/.git" ]; then
-          shopt -s dotglob; mv "$TMPDIR"/* "$FLUTTER_DIR/" 2>/dev/null || true; shopt -u dotglob
-          rm -rf "$TMPDIR"
-        fi
-      else
-        git -C "$FLUTTER_DIR" pull --ff-only 2>&1 | tail -3 || true
-      fi
-
-      [ -f "$FLUTTER_DIR/pubspec.yaml" ] && (cd "$FLUTTER_DIR" && flutter pub get 2>&1 | tail -5) || true
-    fi
+    echo "MySQL ready"
 
     flutter doctor 2>&1 || true
-
-    # Start Laravel dev server
-    [ -f "$LARAVEL_DIR/artisan" ] && (cd "$LARAVEL_DIR" && php artisan serve --host=0.0.0.0 --port=8000 >/tmp/laravel-serve.log 2>&1) &
 
     # phpMyAdmin
     sudo tee /opt/phpmyadmin/config.inc.php >/dev/null <<PMAEOF
@@ -385,10 +275,9 @@ PMAEOF
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "  Laravel API: http://localhost:8000"
     echo "  phpMyAdmin:  http://localhost:8082"
     echo "  Claude:      claude"
-    echo "  backend/ — Laravel    mobile/ — Flutter"
+    echo "  Clone your repos into workspace/ to get started"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   EOT
 
@@ -426,22 +315,6 @@ PMAEOF
 }
 
 # ── Apps ──────────────────────────────────────────────────────────────────────
-
-resource "coder_app" "laravel" {
-  agent_id     = coder_agent.main.id
-  slug         = "laravel"
-  display_name = "Laravel API"
-  url          = "http://127.0.0.1:8000"
-  icon         = "/icon/php.svg"
-  share        = "owner"
-  subdomain    = true
-
-  healthcheck {
-    url       = "http://127.0.0.1:8000"
-    interval  = 15
-    threshold = 6
-  }
-}
 
 resource "coder_app" "phpmyadmin" {
   agent_id     = coder_agent.main.id
