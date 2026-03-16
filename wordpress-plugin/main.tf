@@ -513,6 +513,7 @@ resource "docker_container" "wordpress" {
     "WORDPRESS_DB_USER=${var.wordpress_db_user}",
     "WORDPRESS_DB_PASSWORD=${local.wp_db_pass}",
     "WORDPRESS_TABLE_PREFIX=wp_",
+    "WORDPRESS_CONFIG_EXTRA=define('FS_METHOD', 'direct');",
   ]
 
   networks_advanced {
