@@ -1,8 +1,10 @@
-ARG JAVA_VERSION=17
-FROM eclipse-temurin:${JAVA_VERSION}-jdk-jammy
+FROM codercom/enterprise-base:ubuntu
+
+USER root
 
 ARG PHP_VERSION=8.2
 ARG FLUTTER_CHANNEL=stable
+ARG JAVA_VERSION=17
 
 # ── System deps ──────────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,6 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo less jq socat vim nano \
     default-mysql-client \
     && rm -rf /var/lib/apt/lists/*
+
+# ── JDK ───────────────────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openjdk-${JAVA_VERSION}-jdk \
+    && rm -rf /var/lib/apt/lists/*
+ENV JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-openjdk-amd64
 
 # ── PHP ──────────────────────────────────────────────────────────────────────
 RUN add-apt-repository ppa:ondrej/php -y \
@@ -84,12 +92,6 @@ RUN mkdir -p /opt/phpmyadmin \
     && curl -sL https://files.phpmyadmin.net/phpMyAdmin/5.2.1/phpMyAdmin-5.2.1-all-languages.tar.gz \
     | tar -xz -C /opt/phpmyadmin --strip-components=1
 
-# ── Coder user ───────────────────────────────────────────────────────────────
-RUN useradd -m -s /bin/bash -u 1000 coder \
-    && echo "coder ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/coder \
-    && mkdir -p /home/coder/workspace \
-    && chown -R coder:coder /home/coder
-
 # ── Flutter SDK (installed as coder user for proper permissions) ─────────────
 USER coder
 WORKDIR /home/coder
@@ -118,5 +120,3 @@ RUN code-server \
     --install-extension eamodio.gitlens \
     --install-extension humao.rest-client \
     2>/dev/null || true
-
-EXPOSE 8081
