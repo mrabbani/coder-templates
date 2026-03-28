@@ -339,88 +339,46 @@ module "claude-code" {
 
 resource "coder_script" "claude_code_ui_install" {
   agent_id     = coder_agent.main.id
-  display_name = "Install Claude Code UI"
+  display_name = "Claude Code UI"
   icon         = "/emojis/1f4ac.png"
   run_on_start = true
   start_blocks_login = false
   script = <<-EOT
     #!/usr/bin/env bash
 
-    CODER_HOME="/home/coder"
-    INSTALL_PATH="$${CODER_HOME}/.claude-code-ui"
     PORT=13376
-    INIT_DB="${file("${path.module}/init.db.txt")}"
+    CODER_HOME="/home/coder"
+    LOG="$${CODER_HOME}/.claude-code-ui.log"
 
-    echo "Installing Claude Code UI..."
+    echo "Starting Claude Code UI on port $${PORT}..."
 
-    if ! command -v node > /dev/null; then
-      echo "Node.js is not installed!"; exit 1
-    fi
-    if ! command -v npm > /dev/null; then
-      echo "npm is not installed!"; exit 1
-    fi
-
-    # Ensure home dir is owned by coder (fresh volume may be root-owned)
-    chown -R coder:coder "$${CODER_HOME}" 2>/dev/null || true
-
-    mkdir -p "$${INSTALL_PATH}"
-
-    if [ -d "$${INSTALL_PATH}/claudecodeui" ]; then
-      cd "$${INSTALL_PATH}/claudecodeui"
-      git pull origin main || echo "Failed to pull latest changes, continuing with existing version"
-    else
-      cd "$${INSTALL_PATH}"
-      git clone --depth 1 -b main https://github.com/siteboon/claudecodeui.git
-      cd claudecodeui
-    fi
-
-    # Install ALL deps (including devDependencies needed for vite build)
-    rm -rf node_modules package-lock.json 2>/dev/null || true
-    echo "Installing Claude Code UI dependencies..."
-    NODE_ENV=development npm install 2>&1
-
-    if [ ! -f "$${CODER_HOME}/.claude-code-ui.db" ]; then
-      echo "Creating DB file..."
-      echo "$${INIT_DB}" | base64 -d > "$${CODER_HOME}/.claude-code-ui.db"
-    fi
-
-    echo "Claude Code UI installation completed!"
-
-    export PATH="$${CODER_HOME}/.local/bin:$${PATH}"
-    printf '%s\n' \
-      "SERVER_PORT=$${PORT}" \
-      "VITE_PORT=5173" \
-      "VITE_IS_PLATFORM=true" \
-      "VITE_CONTEXT_WINDOW=160000" \
-      "CONTEXT_WINDOW=160000" \
-      "DATABASE_PATH=$${CODER_HOME}/.claude-code-ui.db" \
-      > .env
-
-    # Build frontend assets first, then start server in production mode
-    echo "Building Claude Code UI frontend..."
-    npm run build 2>&1 || { echo "ERROR: vite build failed"; cat "$${CODER_HOME}/.claude-code-ui.log" 2>/dev/null || true; }
-
+    export SERVER_PORT="$${PORT}"
     export DATABASE_PATH="$${CODER_HOME}/.claude-code-ui.db"
-    export NODE_ENV=production
-    cd "$${INSTALL_PATH}/claudecodeui"
-    nohup node server/index.js </dev/null > "$${CODER_HOME}/.claude-code-ui.log" 2>&1 &
+
+    # Initialize DB on first run
+    if [ ! -f "$${DATABASE_PATH}" ]; then
+      INIT_DB="${file("${path.module}/init.db.txt")}"
+      echo "$${INIT_DB}" | base64 -d > "$${DATABASE_PATH}"
+    fi
+
+    nohup npx -y @siteboon/claude-code-ui </dev/null > "$${LOG}" 2>&1 &
     CCUI_PID=$!
     echo $${CCUI_PID} > "$${CODER_HOME}/.claude-code-ui.pid"
-    echo "Claude Code UI started with PID $${CCUI_PID} on port $${PORT}"
 
-    # Wait for the server to be ready
-    for i in $(seq 1 15); do
+    # Wait for server to be ready
+    for i in $(seq 1 30); do
       if curl -s http://localhost:$${PORT} > /dev/null 2>&1; then
         echo "Claude Code UI is running on port $${PORT}"
-        break
+        exit 0
       fi
       if ! kill -0 $${CCUI_PID} 2>/dev/null; then
-        echo "ERROR: Claude Code UI crashed. Log output:"
-        cat "$${CODER_HOME}/.claude-code-ui.log" 2>/dev/null || true
-        break
+        echo "ERROR: Claude Code UI crashed. Log:"
+        tail -20 "$${LOG}" 2>/dev/null || true
+        exit 1
       fi
       sleep 2
     done
+    echo "WARNING: Claude Code UI did not respond within 60s. Check $${LOG}"
   EOT
 }
 
