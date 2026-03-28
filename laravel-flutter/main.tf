@@ -319,7 +319,20 @@ resource "coder_agent" "main" {
           sed -i "s|^DB_USERNAME=.*|DB_USERNAME=laravel|"   "$DIR/.env"
           sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=laravel|"   "$DIR/.env"
           sed -i "s|^REDIS_HOST=.*|REDIS_HOST=redis|"       "$DIR/.env"
+          if ! grep -q "^ASSET_URL=" "$DIR/.env"; then
+            echo "ASSET_URL=/" >> "$DIR/.env"
+          fi
           echo ".env configured for $DIR"
+        fi
+
+        # Force HTTPS when served behind Coder's reverse proxy
+        if [ -f "$DIR/.env" ]; then
+          grep -q "^TRUSTED_PROXIES=" "$DIR/.env" && \
+            sed -i "s|^TRUSTED_PROXIES=.*|TRUSTED_PROXIES=*|" "$DIR/.env" || \
+            echo "TRUSTED_PROXIES=*" >> "$DIR/.env"
+          grep -q "^FORCE_HTTPS=" "$DIR/.env" && \
+            sed -i "s|^FORCE_HTTPS=.*|FORCE_HTTPS=true|" "$DIR/.env" || \
+            echo "FORCE_HTTPS=true" >> "$DIR/.env"
         fi
 
         # App key
@@ -335,7 +348,7 @@ resource "coder_agent" "main" {
 
         # Serve
         echo "Starting Laravel dev server from $DIR on port 8000..."
-        (cd "$DIR" && php artisan serve --host=0.0.0.0 --port=8000 >/tmp/laravel-serve.log 2>&1) &
+        (cd "$DIR" && nohup php artisan serve --host=0.0.0.0 --port=8000 </dev/null >/tmp/laravel-serve.log 2>&1 &)
         break
       fi
     done
@@ -360,7 +373,7 @@ resource "coder_agent" "main" {
 \$cfg['Servers'][1]['auth_type'] = 'config';
 \$cfg['blowfish_secret']         = '$${BLOWFISH_SECRET:-fallback}';
 PMAEOF
-    php -S 127.0.0.1:8082 -t /opt/phpmyadmin/ >/tmp/phpmyadmin.log 2>&1 &
+    nohup php -S 127.0.0.1:8082 -t /opt/phpmyadmin/ </dev/null >/tmp/phpmyadmin.log 2>&1 &
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

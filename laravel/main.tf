@@ -313,6 +313,20 @@ resource "coder_agent" "main" {
       sed -i "s|^DB_USERNAME=.*|DB_USERNAME=laravel|"   "$WORKSPACE/.env"
       sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=laravel|"   "$WORKSPACE/.env"
       sed -i "s|^REDIS_HOST=.*|REDIS_HOST=redis|"       "$WORKSPACE/.env"
+      # Force HTTPS when served behind Coder's reverse proxy
+      if ! grep -q "^ASSET_URL=" "$WORKSPACE/.env"; then
+        echo "ASSET_URL=/" >> "$WORKSPACE/.env"
+      fi
+    fi
+
+    # Always ensure trusted proxies and HTTPS are set for Coder's reverse proxy
+    if [ -f "$WORKSPACE/.env" ]; then
+      grep -q "^TRUSTED_PROXIES=" "$WORKSPACE/.env" && \
+        sed -i "s|^TRUSTED_PROXIES=.*|TRUSTED_PROXIES=*|" "$WORKSPACE/.env" || \
+        echo "TRUSTED_PROXIES=*" >> "$WORKSPACE/.env"
+      grep -q "^FORCE_HTTPS=" "$WORKSPACE/.env" && \
+        sed -i "s|^FORCE_HTTPS=.*|FORCE_HTTPS=true|" "$WORKSPACE/.env" || \
+        echo "FORCE_HTTPS=true" >> "$WORKSPACE/.env"
     fi
 
     # Generate app key
@@ -332,7 +346,7 @@ resource "coder_agent" "main" {
     [ -f "$WORKSPACE/artisan" ] && (cd "$WORKSPACE" && php artisan migrate --force 2>&1 | tail -5) || true
 
     # Start Laravel dev server
-    [ -f "$WORKSPACE/artisan" ] && (cd "$WORKSPACE" && php artisan serve --host=0.0.0.0 --port=8000 >/tmp/laravel-serve.log 2>&1) &
+    [ -f "$WORKSPACE/artisan" ] && (cd "$WORKSPACE" && nohup php artisan serve --host=0.0.0.0 --port=8000 </dev/null >/tmp/laravel-serve.log 2>&1 &)
 
     # phpMyAdmin
     sudo tee /opt/phpmyadmin/config.inc.php >/dev/null <<PMAEOF
@@ -343,7 +357,7 @@ resource "coder_agent" "main" {
 \$cfg['Servers'][1]['auth_type'] = 'config';
 \$cfg['blowfish_secret']         = '$${BLOWFISH_SECRET:-fallback}';
 PMAEOF
-    php -S 127.0.0.1:8082 -t /opt/phpmyadmin/ >/tmp/phpmyadmin.log 2>&1 &
+    nohup php -S 127.0.0.1:8082 -t /opt/phpmyadmin/ </dev/null >/tmp/phpmyadmin.log 2>&1 &
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

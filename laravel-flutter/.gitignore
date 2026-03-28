@@ -1,0 +1,4 @@
+# Coder Desktop sync — skip these from file sync
+.env
+.env.backup
+.env.production
