@@ -398,19 +398,25 @@ resource "coder_script" "claude_code_ui_install" {
       > .env
 
     export DATABASE_PATH="$${CODER_HOME}/.claude-code-ui.db"
-    nohup npm start > "$${CODER_HOME}/.claude-code-ui.log" 2>&1 &
+    cd "$${INSTALL_PATH}/claudecodeui"
+    nohup npm start </dev/null > "$${CODER_HOME}/.claude-code-ui.log" 2>&1 &
     CCUI_PID=$!
     echo $${CCUI_PID} > "$${CODER_HOME}/.claude-code-ui.pid"
     echo "Claude Code UI started with PID $${CCUI_PID} on port $${PORT}"
 
-    # Wait briefly and check if it's actually running
-    sleep 3
-    if kill -0 $${CCUI_PID} 2>/dev/null; then
-      echo "Claude Code UI is running"
-    else
-      echo "ERROR: Claude Code UI failed to start. Log output:"
-      cat "$${CODER_HOME}/.claude-code-ui.log" 2>/dev/null || true
-    fi
+    # Wait for the server to be ready
+    for i in $(seq 1 15); do
+      if curl -s http://localhost:$${PORT} > /dev/null 2>&1; then
+        echo "Claude Code UI is running on port $${PORT}"
+        break
+      fi
+      if ! kill -0 $${CCUI_PID} 2>/dev/null; then
+        echo "ERROR: Claude Code UI crashed. Log output:"
+        cat "$${CODER_HOME}/.claude-code-ui.log" 2>/dev/null || true
+        break
+      fi
+      sleep 2
+    done
   EOT
 }
 
