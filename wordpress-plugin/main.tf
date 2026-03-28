@@ -388,12 +388,6 @@ resource "coder_script" "claude_code_ui_install" {
     export SERVER_PORT="$${PORT}"
     export DATABASE_PATH="$${CODER_HOME}/.claude-code-ui.db"
 
-    # Initialize DB on first run
-    if [ ! -f "$${DATABASE_PATH}" ]; then
-      INIT_DB="${file("${path.module}/init.db.txt")}"
-      echo "$${INIT_DB}" | base64 -d > "$${DATABASE_PATH}"
-    fi
-
     nohup npx -y @siteboon/claude-code-ui </dev/null > "$${LOG}" 2>&1 &
     CCUI_PID=$!
     echo $${CCUI_PID} > "$${CODER_HOME}/.claude-code-ui.pid"
@@ -402,6 +396,17 @@ resource "coder_script" "claude_code_ui_install" {
     for i in $(seq 1 30); do
       if curl -s http://localhost:$${PORT} > /dev/null 2>&1; then
         echo "Claude Code UI is running on port $${PORT}"
+
+        # Create default user on first run (app creates DB schema on startup)
+        if ! command -v sqlite3 > /dev/null 2>&1; then
+          sudo apt-get update -qq && sudo apt-get install -y sqlite3 -qq 2>/dev/null || true
+        fi
+        USER_EXISTS=$(sqlite3 "$${DATABASE_PATH}" "SELECT COUNT(*) FROM users WHERE username='coder';" 2>/dev/null || echo "0")
+        if [ "$${USER_EXISTS}" = "0" ]; then
+          HASH='$$2b$$12$$21kiq1rTirFMatIMhSFpIeWqJKIzaUZhvQkJZesiZVeoB6ygsQKLa'
+          sqlite3 "$${DATABASE_PATH}" "INSERT INTO users (username, password_hash) VALUES ('coder', '$${HASH}');" 2>/dev/null
+          echo "Default user 'coder' created"
+        fi
         exit 0
       fi
       if ! kill -0 $${CCUI_PID} 2>/dev/null; then
