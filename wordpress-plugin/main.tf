@@ -207,7 +207,7 @@ RCEOF
     WP_DB_PASSWORD      = local.wp_db_pass
   }
 
-  # ── Dashboard metadata ────────────────────────────────────────────────────
+  # ── b ────────────────────────────────────────────────────
 
   metadata {
     display_name = "CPU Usage"
@@ -223,6 +223,14 @@ RCEOF
     script       = "coder stat mem"
     interval     = 10
     timeout      = 1
+  }
+
+  metadata {
+    display_name = "PHP Version"
+    key          = "2_php_version"
+    script       = "php --version | head -1"
+    interval     = 60
+    timeout      = 5
   }
 
   metadata {

@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang cmake ninja-build pkg-config \
     libgtk-3-dev liblzma-dev libstdc++-12-dev \
     software-properties-common \
-    sudo less jq socat \
+    sudo less jq socat vim nano \
     default-mysql-client \
     && rm -rf /var/lib/apt/lists/*
 

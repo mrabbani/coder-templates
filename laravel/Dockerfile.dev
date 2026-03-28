@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── System deps ──────────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     default-mysql-client \
-    socat jq docker.io \
+    socat jq docker.io vim nano \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Composer ─────────────────────────────────────────────────────────────────
