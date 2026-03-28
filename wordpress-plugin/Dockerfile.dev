@@ -35,7 +35,7 @@ RUN curl -sO https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cl
     && mv wp-cli.phar /usr/local/bin/wp
 
 # ── Node.js (system-wide, needed for npm global installs during build) ──────
-ENV NODE_MAJOR=22
+ARG NODE_MAJOR=22
 RUN apt-get update \
     && apt-get install -y ca-certificates curl gnupg \
     && mkdir -p /etc/apt/keyrings \

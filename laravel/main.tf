@@ -41,6 +41,29 @@ variable "project_base_path" {
 
 # ── Parameters (user-facing at workspace creation) ───────────────────────────
 
+data "coder_parameter" "node_version" {
+  name         = "node_version"
+  display_name = "Node.js Version"
+  description  = "Node.js major version for the dev container"
+  type         = "string"
+  form_type    = "dropdown"
+  default      = "22"
+  mutable      = true
+
+  option {
+    name  = "18"
+    value = "18"
+  }
+  option {
+    name  = "20"
+    value = "20"
+  }
+  option {
+    name  = "22"
+    value = "22"
+  }
+}
+
 data "coder_parameter" "php_version" {
   name         = "php_version"
   display_name = "PHP Version"
@@ -196,11 +219,13 @@ resource "docker_image" "dev" {
     dockerfile = "Dockerfile.dev"
     build_args = {
       PHP_VERSION = data.coder_parameter.php_version.value
+      NODE_MAJOR  = data.coder_parameter.node_version.value
     }
   }
   triggers = {
-    dockerfile  = filemd5("${path.module}/Dockerfile.dev")
-    php_version = data.coder_parameter.php_version.value
+    dockerfile   = filemd5("${path.module}/Dockerfile.dev")
+    php_version  = data.coder_parameter.php_version.value
+    node_version = data.coder_parameter.node_version.value
   }
 }
 
@@ -398,6 +423,14 @@ PMAEOF
     display_name = "PHP Version"
     key          = "php_version"
     script       = "php --version | head -1"
+    interval     = 60
+    timeout      = 5
+  }
+
+  metadata {
+    display_name = "Node.js Version"
+    key          = "node_version"
+    script       = "node --version"
     interval     = 60
     timeout      = 5
   }

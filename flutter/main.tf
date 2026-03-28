@@ -44,6 +44,29 @@ variable "project_base_path" {
 
 # ── Parameters (user-facing at workspace creation) ───────────────────────────
 
+data "coder_parameter" "node_version" {
+  name         = "node_version"
+  display_name = "Node.js Version"
+  description  = "Node.js major version for the dev container"
+  type         = "string"
+  form_type    = "dropdown"
+  default      = "22"
+  mutable      = true
+
+  option {
+    name  = "18"
+    value = "18"
+  }
+  option {
+    name  = "20"
+    value = "20"
+  }
+  option {
+    name  = "22"
+    value = "22"
+  }
+}
+
 data "coder_parameter" "repo_url" {
   name         = "repo_url"
   display_name = "Git Repo URL"
@@ -93,12 +116,14 @@ resource "docker_image" "dev" {
     build_args = {
       FLUTTER_CHANNEL = var.flutter_channel
       JAVA_VERSION    = var.java_version
+      NODE_MAJOR      = data.coder_parameter.node_version.value
     }
   }
   triggers = {
     dockerfile      = filemd5("${path.module}/Dockerfile.dev")
     flutter_channel = var.flutter_channel
     java_version    = var.java_version
+    node_version    = data.coder_parameter.node_version.value
   }
 }
 
@@ -236,6 +261,14 @@ resource "coder_agent" "main" {
     display_name = "Dart Version"
     key          = "dart_version"
     script       = "dart --version 2>&1"
+    interval     = 60
+    timeout      = 5
+  }
+
+  metadata {
+    display_name = "Node.js Version"
+    key          = "node_version"
+    script       = "node --version"
     interval     = 60
     timeout      = 5
   }
