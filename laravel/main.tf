@@ -346,7 +346,11 @@ resource "coder_agent" "main" {
     [ -f "$WORKSPACE/artisan" ] && (cd "$WORKSPACE" && php artisan migrate --force 2>&1 | tail -5) || true
 
     # Start Laravel dev server
-    [ -f "$WORKSPACE/artisan" ] && (cd "$WORKSPACE" && nohup php artisan serve --host=0.0.0.0 --port=8000 </dev/null >/tmp/laravel-serve.log 2>&1 &)
+    if [ -f "$WORKSPACE/artisan" ]; then
+      cd "$WORKSPACE"
+      nohup php artisan serve --host=0.0.0.0 --port=8000 </dev/null >/tmp/laravel-serve.log 2>&1 &
+      cd -
+    fi
 
     # phpMyAdmin
     sudo tee /opt/phpmyadmin/config.inc.php >/dev/null <<PMAEOF
@@ -357,7 +361,7 @@ resource "coder_agent" "main" {
 \$cfg['Servers'][1]['auth_type'] = 'config';
 \$cfg['blowfish_secret']         = '$${BLOWFISH_SECRET:-fallback}';
 PMAEOF
-    nohup php -S 127.0.0.1:8082 -t /opt/phpmyadmin/ </dev/null >/tmp/phpmyadmin.log 2>&1 &
+    nohup php -S 0.0.0.0:8082 -t /opt/phpmyadmin/ </dev/null >/tmp/phpmyadmin.log 2>&1 &
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -348,7 +348,9 @@ resource "coder_agent" "main" {
 
         # Serve
         echo "Starting Laravel dev server from $DIR on port 8000..."
-        (cd "$DIR" && nohup php artisan serve --host=0.0.0.0 --port=8000 </dev/null >/tmp/laravel-serve.log 2>&1 &)
+        cd "$DIR"
+        nohup php artisan serve --host=0.0.0.0 --port=8000 </dev/null >/tmp/laravel-serve.log 2>&1 &
+        cd -
         break
       fi
     done
@@ -373,7 +375,7 @@ resource "coder_agent" "main" {
 \$cfg['Servers'][1]['auth_type'] = 'config';
 \$cfg['blowfish_secret']         = '$${BLOWFISH_SECRET:-fallback}';
 PMAEOF
-    nohup php -S 127.0.0.1:8082 -t /opt/phpmyadmin/ </dev/null >/tmp/phpmyadmin.log 2>&1 &
+    nohup php -S 0.0.0.0:8082 -t /opt/phpmyadmin/ </dev/null >/tmp/phpmyadmin.log 2>&1 &
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
