@@ -133,7 +133,7 @@ resource "docker_container" "dev" {
     container_path = "/home/coder/workspace"
   }
 
-  entrypoint = ["sh", "-c", replace(coder_agent.main.init_script, "/localhost|127\\.0\\.0\\.1/", "host.docker.internal")]
+  entrypoint = ["sh", "-c", "sudo chown -R coder:coder /home/coder 2>/dev/null || true; ${replace(coder_agent.main.init_script, "/localhost|127\\.0\\.0\\.1/", "host.docker.internal")}"]
 }
 
 # ── Coder agent ───────────────────────────────────────────────────────────────
