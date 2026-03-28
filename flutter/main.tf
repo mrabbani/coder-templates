@@ -193,7 +193,7 @@ resource "coder_agent" "main" {
     fi
 
     echo ""
-    flutter doctor 2>&1 || true
+    flutter doctor >/tmp/flutter-doctor.log 2>&1 || true
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

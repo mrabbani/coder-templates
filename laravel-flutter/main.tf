@@ -362,7 +362,7 @@ resource "coder_agent" "main" {
       fi
     done
 
-    flutter doctor 2>&1 || true
+    flutter doctor >/tmp/flutter-doctor.log 2>&1 || true
 
     # phpMyAdmin
     sudo tee /opt/phpmyadmin/config.inc.php >/dev/null <<PMAEOF
