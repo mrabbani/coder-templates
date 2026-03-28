@@ -139,6 +139,11 @@ resource "docker_volume" "redis_data" {
   name = "redis-data-${data.coder_workspace.me.id}"
 }
 
+resource "docker_volume" "workspace_volume" {
+  name = "coder-${data.coder_workspace.me.id}-workspace"
+  lifecycle { ignore_changes = all }
+}
+
 # ── MySQL ─────────────────────────────────────────────────────────────────────
 
 resource "docker_container" "mysql" {
@@ -246,8 +251,9 @@ resource "docker_container" "dev" {
   }
 
   volumes {
-    host_path      = var.project_base_path
+    volume_name    = docker_volume.workspace_volume.name
     container_path = "/home/coder/workspace"
+    read_only      = false
   }
 
   entrypoint = ["sh", "-c", "sudo chown -R coder:coder /home/coder 2>/dev/null || true; ${replace(coder_agent.main.init_script, "/localhost|127\\.0\\.0\\.1/", "host.docker.internal")}"]
