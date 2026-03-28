@@ -137,7 +137,6 @@ resource "docker_container" "dev" {
 resource "coder_agent" "main" {
   arch = data.coder_provisioner.me.arch
   os   = "linux"
-  dir  = "/home/coder/workspace"
 
   env = {
     GIT_AUTHOR_NAME     = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
