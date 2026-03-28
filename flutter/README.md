@@ -41,16 +41,19 @@ Single container setup — no databases or extra services needed.
 ## Deploy to Coder
 
 ```bash
-# 1. Push the template
-coder templates push flutter \
-  --directory ./flutter \
-  --yes
+# 1. Clone this repo
+git clone https://github.com/mrabbani/coder-wp-plugin-template
+cd coder-wp-plugin-template
 
-# 2. Create a workspace
+# 2. Push the template to your Coder instance
+cd flutter
+coder templates push flutter --directory . --yes
+
+# 3. Create a workspace
 coder create my-flutter \
   --template flutter
 
-# 3. Open the workspace
+# 4. Open the workspace
 coder open my-flutter
 ```
 

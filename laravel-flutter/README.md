@@ -51,16 +51,19 @@ All services run in Docker containers on a shared network.
 ## Deploy to Coder
 
 ```bash
-# 1. Push the template
-coder templates push laravel-flutter \
-  --directory ./laravel-flutter \
-  --yes
+# 1. Clone this repo
+git clone https://github.com/mrabbani/coder-wp-plugin-template
+cd coder-wp-plugin-template
 
-# 2. Create a workspace
+# 2. Push the template to your Coder instance
+cd laravel-flutter
+coder templates push laravel-flutter --directory . --yes
+
+# 3. Create a workspace
 coder create my-fullstack \
   --template laravel-flutter
 
-# 3. Open the workspace
+# 4. Open the workspace
 coder open my-fullstack
 ```
 

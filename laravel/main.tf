@@ -41,6 +41,37 @@ variable "project_base_path" {
 
 # ── Parameters (user-facing at workspace creation) ───────────────────────────
 
+data "coder_parameter" "php_version" {
+  name         = "php_version"
+  display_name = "PHP Version"
+  description  = "PHP version for the dev container"
+  type         = "string"
+  form_type    = "dropdown"
+  default      = "8.2"
+  mutable      = true
+
+  option {
+    name  = "8.1"
+    value = "8.1"
+  }
+  option {
+    name  = "8.2"
+    value = "8.2"
+  }
+  option {
+    name  = "8.3"
+    value = "8.3"
+  }
+  option {
+    name  = "8.4"
+    value = "8.4"
+  }
+  option {
+    name  = "8.5"
+    value = "8.5"
+  }
+}
+
 data "coder_parameter" "repo_url" {
   name         = "repo_url"
   display_name = "Git Repo URL"
@@ -163,12 +194,12 @@ resource "docker_image" "dev" {
     context    = path.module
     dockerfile = "Dockerfile.dev"
     build_args = {
-      PHP_VERSION = var.php_version
+      PHP_VERSION = data.coder_parameter.php_version.value
     }
   }
   triggers = {
     dockerfile  = filemd5("${path.module}/Dockerfile.dev")
-    php_version = var.php_version
+    php_version = data.coder_parameter.php_version.value
   }
 }
 
