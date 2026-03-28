@@ -405,14 +405,12 @@ resource "coder_script" "claude_code_ui_install" {
       if curl -s http://localhost:$${PORT} > /dev/null 2>&1; then
         echo "Claude Code UI is running on port $${PORT}"
 
-        # Create default user on first run (app creates DB schema on startup)
-        if ! command -v sqlite3 > /dev/null 2>&1; then
-          sudo apt-get update -qq && sudo apt-get install -y sqlite3 -qq 2>/dev/null || true
-        fi
-        USER_EXISTS=$(sqlite3 "$${DATABASE_PATH}" "SELECT COUNT(*) FROM users WHERE username='coder';" 2>/dev/null || echo "0")
-        if [ "$${USER_EXISTS}" = "0" ]; then
-          HASH='$$2b$$12$$21kiq1rTirFMatIMhSFpIeWqJKIzaUZhvQkJZesiZVeoB6ygsQKLa'
-          sqlite3 "$${DATABASE_PATH}" "INSERT INTO users (username, password_hash) VALUES ('coder', '$${HASH}');" 2>/dev/null
+        # Create default user on first run via registration API
+        REGISTER=$(curl -s -o /dev/null -w "%%{http_code}" \
+          -X POST http://localhost:$${PORT}/api/auth/register \
+          -H "Content-Type: application/json" \
+          -d '{"username":"coder","password":"coder"}')
+        if [ "$${REGISTER}" = "201" ]; then
           echo "Default user 'coder' created"
         fi
         exit 0
