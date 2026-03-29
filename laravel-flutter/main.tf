@@ -344,52 +344,50 @@ resource "coder_agent" "main" {
       if [ -f "$DIR/artisan" ]; then
         echo "Found Laravel project at $DIR"
 
-        # .env setup — stored outside sync root so local .env is independent
-        DIRNAME=$(basename "$DIR")
-        ENV_REMOTE="/tmp/laravel-$${DIRNAME}.env"
-        if [ -f "$DIR/.env.example" ] && [ ! -f "$ENV_REMOTE" ]; then
-          cp "$DIR/.env.example" "$ENV_REMOTE"
-          sed -i "s|^DB_HOST=.*|DB_HOST=mysql|"            "$ENV_REMOTE"
-          sed -i "s|^DB_DATABASE=.*|DB_DATABASE=laravel|"   "$ENV_REMOTE"
-          sed -i "s|^DB_USERNAME=.*|DB_USERNAME=laravel|"   "$ENV_REMOTE"
-          sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=laravel|"   "$ENV_REMOTE"
-          sed -i "s|^REDIS_HOST=.*|REDIS_HOST=redis|"       "$ENV_REMOTE"
-          if ! grep -q "^ASSET_URL=" "$ENV_REMOTE"; then
-            echo "ASSET_URL=/" >> "$ENV_REMOTE"
+        # .env.coder setup — separate from .env so Coder Desktop sync doesn't conflict
+        if [ -f "$DIR/.env.example" ] && [ ! -f "$DIR/.env.coder" ]; then
+          cp "$DIR/.env.example" "$DIR/.env.coder"
+          sed -i "s|^DB_HOST=.*|DB_HOST=mysql|"            "$DIR/.env.coder"
+          sed -i "s|^DB_DATABASE=.*|DB_DATABASE=laravel|"   "$DIR/.env.coder"
+          sed -i "s|^DB_USERNAME=.*|DB_USERNAME=laravel|"   "$DIR/.env.coder"
+          sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=laravel|"   "$DIR/.env.coder"
+          sed -i "s|^REDIS_HOST=.*|REDIS_HOST=redis|"       "$DIR/.env.coder"
+          if ! grep -q "^ASSET_URL=" "$DIR/.env.coder"; then
+            echo "ASSET_URL=/" >> "$DIR/.env.coder"
           fi
-          echo ".env configured for $DIR"
+          echo ".env.coder configured for $DIR"
         fi
 
         # Force HTTPS when served behind Coder's reverse proxy
-        if [ -f "$ENV_REMOTE" ]; then
-          grep -q "^TRUSTED_PROXIES=" "$ENV_REMOTE" && \
-            sed -i "s|^TRUSTED_PROXIES=.*|TRUSTED_PROXIES=*|" "$ENV_REMOTE" || \
-            echo "TRUSTED_PROXIES=*" >> "$ENV_REMOTE"
-          grep -q "^FORCE_HTTPS=" "$ENV_REMOTE" && \
-            sed -i "s|^FORCE_HTTPS=.*|FORCE_HTTPS=true|" "$ENV_REMOTE" || \
-            echo "FORCE_HTTPS=true" >> "$ENV_REMOTE"
+        if [ -f "$DIR/.env.coder" ]; then
+          grep -q "^TRUSTED_PROXIES=" "$DIR/.env.coder" && \
+            sed -i "s|^TRUSTED_PROXIES=.*|TRUSTED_PROXIES=*|" "$DIR/.env.coder" || \
+            echo "TRUSTED_PROXIES=*" >> "$DIR/.env.coder"
+          grep -q "^FORCE_HTTPS=" "$DIR/.env.coder" && \
+            sed -i "s|^FORCE_HTTPS=.*|FORCE_HTTPS=true|" "$DIR/.env.coder" || \
+            echo "FORCE_HTTPS=true" >> "$DIR/.env.coder"
         fi
 
-        # Symlink .env → remote env (Coder Desktop won't sync symlink targets outside root)
-        if [ -f "$ENV_REMOTE" ]; then
-          ln -sf "$ENV_REMOTE" "$DIR/.env"
+        # Add .env.coder to .gitignore
+        if [ -f "$DIR/.gitignore" ] && ! grep -q ".env.coder" "$DIR/.gitignore"; then
+          echo ".env.coder" >> "$DIR/.gitignore"
         fi
 
-        # App key
-        APP_KEY=$(grep "^APP_KEY=" "$DIR/.env" 2>/dev/null | cut -d= -f2)
-        [ -z "$APP_KEY" ] && (cd "$DIR" && php artisan key:generate --force) || true
+        # App key (using --env=coder to load .env.coder)
+        APP_KEY=$(grep "^APP_KEY=" "$DIR/.env.coder" 2>/dev/null | cut -d= -f2)
+        [ -z "$APP_KEY" ] && (cd "$DIR" && php artisan key:generate --env=coder --force) || true
 
         # Composer & npm
         [ -f "$DIR/composer.json" ] && (cd "$DIR" && composer install --no-interaction --prefer-dist -q 2>&1 | tail -5) || true
         [ -f "$DIR/package.json" ] && (cd "$DIR" && npm install --silent 2>&1 | tail -5) || true
 
         # Migrations
-        (cd "$DIR" && php artisan migrate --force 2>&1 | tail -5) || true
+        (cd "$DIR" && php artisan migrate --env=coder --force 2>&1 | tail -5) || true
 
-        # Serve
+        # Serve (--env=coder loads .env.coder instead of .env)
         echo "Starting Laravel dev server from $DIR on port 8000..."
         cd "$DIR"
-        nohup php artisan serve --host=0.0.0.0 --port=8000 </dev/null >/tmp/laravel-serve.log 2>&1 &
+        nohup php artisan serve --env=coder --host=0.0.0.0 --port=8000 </dev/null >/tmp/laravel-serve.log 2>&1 &
         cd -
         break
       fi

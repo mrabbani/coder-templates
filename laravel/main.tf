@@ -337,39 +337,39 @@ resource "coder_agent" "main" {
     [ -f "$WORKSPACE/composer.json" ] && (cd "$WORKSPACE" && composer install --no-interaction --prefer-dist -q 2>&1 | tail -5) || true
     [ -f "$WORKSPACE/package.json" ] && (cd "$WORKSPACE" && npm install --silent 2>&1 | tail -5) || true
 
-    # Laravel .env setup — stored outside sync root so local .env is independent
-    ENV_REMOTE="/tmp/laravel-remote.env"
-    if [ -f "$WORKSPACE/.env.example" ] && [ ! -f "$ENV_REMOTE" ]; then
-      cp "$WORKSPACE/.env.example" "$ENV_REMOTE"
-      sed -i "s|^DB_HOST=.*|DB_HOST=mysql|"            "$ENV_REMOTE"
-      sed -i "s|^DB_DATABASE=.*|DB_DATABASE=laravel|"   "$ENV_REMOTE"
-      sed -i "s|^DB_USERNAME=.*|DB_USERNAME=laravel|"   "$ENV_REMOTE"
-      sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=laravel|"   "$ENV_REMOTE"
-      sed -i "s|^REDIS_HOST=.*|REDIS_HOST=redis|"       "$ENV_REMOTE"
-      if ! grep -q "^ASSET_URL=" "$ENV_REMOTE"; then
-        echo "ASSET_URL=/" >> "$ENV_REMOTE"
+    # Laravel .env setup — use .env.coder (not .env) to avoid Coder Desktop sync conflicts
+    # Your local .env stays untouched, remote uses .env.coder loaded via APP_ENV_PATH
+    if [ -f "$WORKSPACE/.env.example" ] && [ ! -f "$WORKSPACE/.env.coder" ]; then
+      cp "$WORKSPACE/.env.example" "$WORKSPACE/.env.coder"
+      sed -i "s|^DB_HOST=.*|DB_HOST=mysql|"            "$WORKSPACE/.env.coder"
+      sed -i "s|^DB_DATABASE=.*|DB_DATABASE=laravel|"   "$WORKSPACE/.env.coder"
+      sed -i "s|^DB_USERNAME=.*|DB_USERNAME=laravel|"   "$WORKSPACE/.env.coder"
+      sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=laravel|"   "$WORKSPACE/.env.coder"
+      sed -i "s|^REDIS_HOST=.*|REDIS_HOST=redis|"       "$WORKSPACE/.env.coder"
+      if ! grep -q "^ASSET_URL=" "$WORKSPACE/.env.coder"; then
+        echo "ASSET_URL=/" >> "$WORKSPACE/.env.coder"
       fi
     fi
 
     # Always ensure trusted proxies and HTTPS are set for Coder's reverse proxy
-    if [ -f "$ENV_REMOTE" ]; then
-      grep -q "^TRUSTED_PROXIES=" "$ENV_REMOTE" && \
-        sed -i "s|^TRUSTED_PROXIES=.*|TRUSTED_PROXIES=*|" "$ENV_REMOTE" || \
-        echo "TRUSTED_PROXIES=*" >> "$ENV_REMOTE"
-      grep -q "^FORCE_HTTPS=" "$ENV_REMOTE" && \
-        sed -i "s|^FORCE_HTTPS=.*|FORCE_HTTPS=true|" "$ENV_REMOTE" || \
-        echo "FORCE_HTTPS=true" >> "$ENV_REMOTE"
+    if [ -f "$WORKSPACE/.env.coder" ]; then
+      grep -q "^TRUSTED_PROXIES=" "$WORKSPACE/.env.coder" && \
+        sed -i "s|^TRUSTED_PROXIES=.*|TRUSTED_PROXIES=*|" "$WORKSPACE/.env.coder" || \
+        echo "TRUSTED_PROXIES=*" >> "$WORKSPACE/.env.coder"
+      grep -q "^FORCE_HTTPS=" "$WORKSPACE/.env.coder" && \
+        sed -i "s|^FORCE_HTTPS=.*|FORCE_HTTPS=true|" "$WORKSPACE/.env.coder" || \
+        echo "FORCE_HTTPS=true" >> "$WORKSPACE/.env.coder"
     fi
 
-    # Symlink .env → remote env (Coder Desktop won't sync symlink targets outside root)
-    if [ -f "$ENV_REMOTE" ]; then
-      ln -sf "$ENV_REMOTE" "$WORKSPACE/.env"
+    # Add .env.coder to .gitignore so it doesn't get committed
+    if [ -f "$WORKSPACE/.gitignore" ] && ! grep -q ".env.coder" "$WORKSPACE/.gitignore"; then
+      echo ".env.coder" >> "$WORKSPACE/.gitignore"
     fi
 
-    # Generate app key
+    # Generate app key (using .env.coder on remote)
     if [ -f "$WORKSPACE/artisan" ]; then
-      APP_KEY=$(grep "^APP_KEY=" "$WORKSPACE/.env" 2>/dev/null | cut -d= -f2)
-      [ -z "$APP_KEY" ] && (cd "$WORKSPACE" && php artisan key:generate --force) || true
+      APP_KEY=$(grep "^APP_KEY=" "$WORKSPACE/.env.coder" 2>/dev/null | cut -d= -f2)
+      [ -z "$APP_KEY" ] && (cd "$WORKSPACE" && php artisan key:generate --env=coder --force) || true
     fi
 
     # Wait for MySQL
@@ -380,12 +380,12 @@ resource "coder_agent" "main" {
     done
 
     # Migrations
-    [ -f "$WORKSPACE/artisan" ] && (cd "$WORKSPACE" && php artisan migrate --force 2>&1 | tail -5) || true
+    [ -f "$WORKSPACE/artisan" ] && (cd "$WORKSPACE" && php artisan migrate --env=coder --force 2>&1 | tail -5) || true
 
-    # Start Laravel dev server
+    # Start Laravel dev server (--env=coder loads .env.coder, not .env)
     if [ -f "$WORKSPACE/artisan" ]; then
       cd "$WORKSPACE"
-      nohup php artisan serve --host=0.0.0.0 --port=8000 </dev/null >/tmp/laravel-serve.log 2>&1 &
+      nohup php artisan serve --env=coder --host=0.0.0.0 --port=8000 </dev/null >/tmp/laravel-serve.log 2>&1 &
       cd -
     fi
 
