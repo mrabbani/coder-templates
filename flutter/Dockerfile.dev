@@ -53,6 +53,9 @@ RUN apt-get update \
 # ── Claude Code CLI ──────────────────────────────────────────────────────────
 RUN npm install -g @anthropic-ai/claude-code
 
+# ── OpenSpec (AI coding spec layer) ─────────────────────────────────────────
+RUN npm install -g @fission-ai/openspec@latest
+
 # ── GitHub CLI ──────────────────────────────────────────────────────────────
 RUN mkdir -p -m 755 /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
